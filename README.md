@@ -1,93 +1,99 @@
-# mcp-host
+# Unity QA Client
 
+本仓库包含 QA Test Framework 的 Unity 客户端脚本。进入 Play Mode 后，客户端会自动连接 QA register server，扫描当前 AppDomain 中带 `[QaTest]` 的方法并注册到服务端，随后可以接收 Web 控制台或 MCP 工具发来的执行命令。
 
+## 目录结构
 
-## Getting started
+- `QaTest/`: 客户端核心代码，包括 WebSocket 连接、方法扫描、参数转换、执行结果回传和协程返回值封装。
+- `Example/`: 示例测试方法，覆盖连通性检查、日志输出、面板状态和控件交互等 mock 场景。
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 接入方式
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+把 `QaTest/` 目录放入 Unity 工程的 `Assets` 下。运行时 `QaTestBootstrap` 会在场景加载后自动创建 `[QaTestClient]` 对象，并通过 `DontDestroyOnLoad` 保持连接。
 
-## Add your files
+默认连接地址：
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://192.168.9.98:8010/game_automation/mcp-host.git
-git branch -M main
-git push -uf origin main
+```text
+ws://localhost:3000/ws?role=unity
 ```
 
-## Integrate with your tools
+如果需要覆盖服务地址，可以使用命令行参数：
 
-- [ ] [Set up project integrations](https://192.168.9.98:8010/game_automation/mcp-host/-/settings/integrations)
+```powershell
+Unity.exe -projectPath <projectPath> --qa-server-url ws://localhost:3000/ws?role=unity
+```
 
-## Collaborate with your team
+也可以在场景中预置 `QaTestClient` 组件，并通过 Inspector 配置 `serverUrl` 序列化字段。客户端会自动补齐 `role=unity` 参数。
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+## 定义测试方法
 
-## Test and Deploy
+给静态方法或 `MonoBehaviour` 实例方法添加 `[QaTest]`：
 
-Use the built-in continuous integration in GitLab.
+```csharp
+using QaTestFramework;
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+public sealed class LoginQaTests : UnityEngine.MonoBehaviour
+{
+    [QaTest("点击登录按钮", "模拟点击登录按钮并返回执行结果。")]
+    private static string ClickLoginButton(string objectName)
+    {
+        return "clicked: " + objectName;
+    }
+}
+```
 
-***
+支持的参数会从服务端传入的字符串数组转换，可直接使用 `string`、`bool`、`int`、`long`、`float`、`double`、枚举、`Vector2`、`Vector3`、`Vector4`、可空类型、可选参数，以及可由 `JsonUtility.FromJson` 解析的类型。方法 ID 由声明类型、方法名和参数类型生成；实例方法会额外包含 Unity 对象实例 ID。
 
-# Editing this README
+## 返回值
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+测试方法可以返回：
 
-## Suggestions for a good README
+- 普通值：会用 invariant culture 转为字符串。
+- `Task` 或 `Task<T>`：客户端等待完成后返回结果。
+- `IEnumerator`：客户端作为协程执行，完成后返回 `QaTestCoroutineReturn` 携带的值。
+- `QaTestCoroutineResult`: 用于协程完成后通过回调或闭包提供最终结果。
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+协程返回示例：
 
-## Name
-Choose a self-explaining name for your project.
+```csharp
+[QaTest("等待后返回")]
+private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
+{
+    yield return new UnityEngine.WaitForSeconds(seconds);
+    yield return QaTestCoroutineReturn.From("done");
+}
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## 客户端名称
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+默认名称为：
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```text
+<Application.productName>@<SystemInfo.deviceName>
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+可以通过 `QaTestClient.SetClientName(newName, persist: true)` 设置自定义名称。自定义名称会保存到 PlayerPrefs，并在重新注册时同步到服务端。
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## 执行链路
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+1. 启动 QA register server。
+2. Unity 进入 Play Mode，`QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
+3. 客户端发送 `register` 消息，包含 `clientId`、名称、平台、Unity 版本和方法列表。
+4. Web 控制台或 MCP 工具发送 `execute` 命令。
+5. Unity 主线程执行目标 `[QaTest]` 方法，并回传 `qa_result`。
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## 示例脚本
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+`Example/` 目录提供了可直接注册的方法：
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+- `QaTestSample`: 连通性检查、日志输出、等待后返回。
+- `QaTestPanel`: 面板存在、显隐设置、显隐状态查询、等待显隐状态。
+- `QaTestControl`: 控件点击、可交互状态设置和等待。
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+这些示例目前是 mock 行为，适合验证 register server、Web 控制台和 MCP 工具的完整链路。
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## 注意事项
 
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- Unity `.meta` 文件在当前仓库中被忽略；如果需要作为 Unity package 正式分发，应重新评估 `.meta` 文件策略。
+- `QaTestClient` 会自动重连，默认重连间隔为 2 秒。
+- 心跳默认每 10 秒发送一次；服务端会清理长时间未心跳的客户端。
