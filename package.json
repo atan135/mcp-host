@@ -1,0 +1,18 @@
+{
+  "name": "com.qatestframework.unityclient",
+  "version": "0.1.0",
+  "displayName": "QA Test Framework Unity Client",
+  "description": "Unity client scripts for QA Test Framework. The client registers QaTest methods with the QA register server and executes commands from the web console or MCP tools.",
+  "unity": "2022.3",
+  "type": "library",
+  "keywords": [
+    "qa",
+    "test",
+    "automation",
+    "websocket",
+    "mcp"
+  ],
+  "author": {
+    "name": "QA Test Framework"
+  }
+}
