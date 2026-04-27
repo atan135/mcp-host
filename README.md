@@ -4,12 +4,24 @@
 
 ## 目录结构
 
-- `QaTest/`: 客户端核心代码，包括 WebSocket 连接、方法扫描、参数转换、执行结果回传和协程返回值封装。
-- `Example/`: 示例测试方法，覆盖连通性检查、日志输出、面板状态和控件交互等 mock 场景。
+- `Runtime/QaTest/`: 客户端核心代码，包括 WebSocket 连接、方法扫描、参数转换、执行结果回传和协程返回值封装。
+- `Samples~/Example/`: 示例测试方法，覆盖连通性检查、日志输出、面板状态和控件交互等 mock 场景。
 
 ## 接入方式
 
-把 `QaTest/` 目录放入 Unity 工程的 `Assets` 下。运行时 `QaTestBootstrap` 会在场景加载后自动创建 `[QaTestClient]` 对象，并通过 `DontDestroyOnLoad` 保持连接。
+通过 Package Manager 的 Git URL 引入本仓库，或把本目录作为本地 package 添加到 Unity 工程。运行时代码位于 `Runtime/`，并通过 `QaTestFramework.UnityClient` 程序集定义编译。`QaTestBootstrap` 会在场景加载后自动创建 `[QaTestClient]` 对象，并通过 `DontDestroyOnLoad` 保持连接。
+
+在 `Packages/manifest.json` 中直接引用 Git 仓库：
+
+```json
+{
+  "dependencies": {
+    "com.qatestframework.unityclient": "https://192.168.9.98:8010/game_automation/mcp-host.git"
+  }
+}
+```
+
+如果已经安装过旧结构的包，删除 `Packages/packages-lock.json` 中对应条目，或在 Package Manager 中 remove 后重新 add，让 Unity 拉取新的 commit。
 
 默认连接地址：
 
@@ -84,7 +96,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 ## 示例脚本
 
-`Example/` 目录提供了可直接注册的方法：
+Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Example/` 目录提供了可直接注册的方法：
 
 - `QaTestSample`: 连通性检查、日志输出、等待后返回。
 - `QaTestPanel`: 面板存在、显隐设置、显隐状态查询、等待显隐状态。

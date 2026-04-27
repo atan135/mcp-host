@@ -1,6 +1,6 @@
 {
   "name": "com.qatestframework.unityclient",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "QA Test Framework Unity Client",
   "description": "Unity client scripts for QA Test Framework. The client registers QaTest methods with the QA register server and executes commands from the web console or MCP tools.",
   "unity": "2022.3",
@@ -12,6 +12,17 @@
     "websocket",
     "mcp"
   ],
+  "samples": [
+    {
+      "displayName": "QaTest Examples",
+      "description": "Example QaTest methods for validating the register server, web console, and MCP workflow.",
+      "path": "Samples~/Example"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://192.168.9.98:8010/game_automation/mcp-host.git"
+  },
   "author": {
     "name": "QA Test Framework"
   }
