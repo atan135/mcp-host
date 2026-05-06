@@ -53,7 +53,7 @@ namespace QaTestFramework
 
         private void RegisterType(Type type)
         {
-            if (type == null || type.IsAbstract && type.IsSealed)
+            if (type == null)
             {
                 return;
             }

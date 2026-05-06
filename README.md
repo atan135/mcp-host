@@ -44,12 +44,28 @@ Unity.exe -projectPath <projectPath> --qa-server-url ws://localhost:3000/ws?role
 ```csharp
 using QaTestFramework;
 
-public sealed class LoginQaTests : UnityEngine.MonoBehaviour
+public static class LoginQaTests
 {
     [QaTest("点击登录按钮", "模拟点击登录按钮并返回执行结果。")]
     private static string ClickLoginButton(string objectName)
     {
         return "clicked: " + objectName;
+    }
+}
+```
+
+如果方法需要访问场景对象状态，也可以定义为 `MonoBehaviour` 实例方法。实例方法只有在场景中存在对应组件实例时才会注册：
+
+```csharp
+using QaTestFramework;
+using UnityEngine;
+
+public sealed class LoginQaPanel : MonoBehaviour
+{
+    [QaTest("读取登录面板名称", "返回当前挂载对象名称。")]
+    private string GetPanelName()
+    {
+        return gameObject.name;
     }
 }
 ```
@@ -96,9 +112,11 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 ## 示例脚本
 
-Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Example/` 目录提供了可直接注册的方法：
+Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Example/` 目录提供了以下示例方法；其中实例方法需要把对应 `MonoBehaviour` 挂到场景对象后才会注册：
 
-- `QaTestSample`: 连通性检查、日志输出、等待后返回。
+- `QaTestStaticSample`: static class 中的静态方法注册示例。
+- `QaTestUtilitySample`: 普通 class 中的静态方法注册示例。
+- `QaTestSample`: MonoBehaviour 类型中的实例方法、静态方法、日志输出和等待后返回。
 - `QaTestPanel`: 面板存在、显隐设置、显隐状态查询、等待显隐状态。
 - `QaTestControl`: 控件点击、可交互状态设置和等待。
 
