@@ -38,6 +38,9 @@ namespace QaTestFramework.Editor
                 EditorGUILayout.TextField("Resolved Server Url", client.ResolvedServerUrl);
                 EditorGUILayout.IntField("Registered Methods", client.RegisteredMethodCount);
                 EditorGUILayout.IntField("Pending Main Thread Actions", client.PendingMainThreadActionCount);
+                EditorGUILayout.Toggle("Busy", client.IsBusy);
+                EditorGUILayout.TextField("Current Request Id", client.CurrentRequestId);
+                EditorGUILayout.TextField("Current Method", client.CurrentMethodName);
                 EditorGUILayout.FloatField("Next Heartbeat In", client.NextHeartbeatInSeconds);
                 EditorGUILayout.TextField("Last Server Message", client.LastServerMessageType);
                 EditorGUILayout.TextField("Last Error", client.LastError);

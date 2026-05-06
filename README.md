@@ -106,9 +106,10 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 1. 启动 QA register server。
 2. Unity 进入 Play Mode，`QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
-3. 客户端发送 `register` 消息，包含 `clientId`、名称、平台、Unity 版本和方法列表。
+3. 客户端发送 `register` 消息，包含 `clientId`、名称、平台、Unity 版本、方法列表和本地 busy 状态。
 4. Web 控制台或 MCP 工具发送 `execute` 命令。
 5. Unity 主线程执行目标 `[QaTest]` 方法，并回传 `qa_result`。
+6. 如果 Unity 本地已有请求在执行，新收到的 `execute` 会立即返回失败结果，不会并发执行第二个测试方法。
 
 ## 示例脚本
 
@@ -126,4 +127,4 @@ Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Exa
 
 - Unity `.meta` 文件在当前仓库中被忽略；如果需要作为 Unity package 正式分发，应重新评估 `.meta` 文件策略。
 - `QaTestClient` 会自动重连，默认重连间隔为 2 秒。
-- 心跳默认每 10 秒发送一次；服务端会清理长时间未心跳的客户端。
+- 心跳默认每 10 秒发送一次，并会上报 `busy`、`currentRequestId` 和 `currentMethodName`；服务端会清理长时间未心跳的客户端。

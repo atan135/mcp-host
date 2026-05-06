@@ -10,6 +10,9 @@ namespace QaTestFramework
         public string name;
         public string platform;
         public string unityVersion;
+        public bool busy;
+        public string currentRequestId;
+        public string currentMethodName;
         public QaTestMethodDto[] methods;
     }
 
@@ -49,6 +52,9 @@ namespace QaTestFramework
     {
         public string type = "heartbeat";
         public string clientId;
+        public bool busy;
+        public string currentRequestId;
+        public string currentMethodName;
     }
 
     [Serializable]

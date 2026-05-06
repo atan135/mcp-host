@@ -28,6 +28,7 @@ namespace QaTestFramework
         private readonly QaTestRegistry registry = new QaTestRegistry();
         private readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
         private readonly SemaphoreSlim sendLock = new SemaphoreSlim(1, 1);
+        private readonly object executionStateLock = new object();
 
         private CancellationTokenSource lifetimeCts;
         private ClientWebSocket webSocket;
@@ -48,6 +49,8 @@ namespace QaTestFramework
         private DateTime lastMessageReceivedAtUtc;
         private DateTime lastCommandReceivedAtUtc;
         private DateTime lastResultSentAtUtc;
+        private string currentRequestId = "";
+        private string currentMethodName = "";
         private int connectAttemptCount;
         private int connectSuccessCount;
         private int reconnectFailureCount;
@@ -233,6 +236,21 @@ namespace QaTestFramework
         public int PendingMainThreadActionCount
         {
             get { return mainThreadActions.Count; }
+        }
+
+        public bool IsBusy
+        {
+            get { return GetExecutionState().busy; }
+        }
+
+        public string CurrentRequestId
+        {
+            get { return GetExecutionState().requestId; }
+        }
+
+        public string CurrentMethodName
+        {
+            get { return GetExecutionState().methodName; }
         }
 
         public int RegisteredMethodCount
@@ -503,7 +521,91 @@ namespace QaTestFramework
 
             commandsReceivedCount++;
             lastCommandReceivedAtUtc = DateTime.UtcNow;
-            mainThreadActions.Enqueue(() => { _ = ExecuteAndReportAsync(command); });
+            mainThreadActions.Enqueue(() => { _ = TryExecuteAndReportAsync(command); });
+        }
+
+        private async Task TryExecuteAndReportAsync(QaTestServerCommand command)
+        {
+            if (!TryBeginExecution(command))
+            {
+                await SendBusyResultAsync(command);
+                return;
+            }
+
+            if (IsConnected)
+            {
+                _ = SendHeartbeatAsync();
+            }
+
+            try
+            {
+                await ExecuteAndReportAsync(command);
+            }
+            finally
+            {
+                EndExecution();
+                if (IsConnected)
+                {
+                    _ = SendHeartbeatAsync();
+                }
+            }
+        }
+
+        private bool TryBeginExecution(QaTestServerCommand command)
+        {
+            lock (executionStateLock)
+            {
+                if (!string.IsNullOrEmpty(currentRequestId))
+                {
+                    return false;
+                }
+
+                currentRequestId = string.IsNullOrWhiteSpace(command.requestId) ? "(missing requestId)" : command.requestId;
+                currentMethodName = string.IsNullOrWhiteSpace(command.methodName) ? command.methodId ?? string.Empty : command.methodName;
+                return true;
+            }
+        }
+
+        private void EndExecution()
+        {
+            lock (executionStateLock)
+            {
+                currentRequestId = string.Empty;
+                currentMethodName = string.Empty;
+            }
+        }
+
+        private async Task SendBusyResultAsync(QaTestServerCommand command)
+        {
+            ExecutionState executionState = GetExecutionState();
+            QaTestResultMessage resultMessage = new QaTestResultMessage
+            {
+                requestId = command.requestId,
+                clientId = clientId,
+                methodId = command.methodId,
+                methodName = command.methodName,
+                success = false,
+                result = string.Empty,
+                error = "QaTestClient is busy running request " + executionState.requestId + ".",
+                durationMs = 0,
+            };
+
+            try
+            {
+                CancellationToken token = lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None;
+                await SendMessageAsync(resultMessage, token);
+                resultsSentCount++;
+                lastResultSentAtUtc = DateTime.UtcNow;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                resultSendFailureCount++;
+                lastError = exception.GetType().Name + ": " + exception.Message;
+                Debug.LogWarning("[QaTest] Failed to send busy result: " + exception.Message);
+            }
         }
 
         private async Task ExecuteAndReportAsync(QaTestServerCommand command)
@@ -657,6 +759,7 @@ namespace QaTestFramework
                 unityVersion = Application.unityVersion,
                 methods = registry.ToDtos(),
             };
+            ApplyExecutionState(registerMessage);
 
             await SendMessageAsync(registerMessage, token);
             registerSentCount++;
@@ -672,6 +775,7 @@ namespace QaTestFramework
                 {
                     clientId = clientId,
                 };
+                ApplyExecutionState(heartbeatMessage);
 
                 CancellationToken token = lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None;
                 await SendMessageAsync(heartbeatMessage, token);
@@ -825,6 +929,35 @@ namespace QaTestFramework
             return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
         }
 
+        private ExecutionState GetExecutionState()
+        {
+            lock (executionStateLock)
+            {
+                return new ExecutionState
+                {
+                    busy = !string.IsNullOrEmpty(currentRequestId),
+                    requestId = currentRequestId,
+                    methodName = currentMethodName,
+                };
+            }
+        }
+
+        private void ApplyExecutionState(QaTestRegisterMessage message)
+        {
+            ExecutionState executionState = GetExecutionState();
+            message.busy = executionState.busy;
+            message.currentRequestId = executionState.requestId;
+            message.currentMethodName = executionState.methodName;
+        }
+
+        private void ApplyExecutionState(QaTestHeartbeatMessage message)
+        {
+            ExecutionState executionState = GetExecutionState();
+            message.busy = executionState.busy;
+            message.currentRequestId = executionState.requestId;
+            message.currentMethodName = executionState.methodName;
+        }
+
         private static string ConvertResultToString(object result)
         {
             if (result == null)
@@ -844,6 +977,13 @@ namespace QaTestFramework
             }
 
             return Convert.ToString(result, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private struct ExecutionState
+        {
+            public bool busy;
+            public string requestId;
+            public string methodName;
         }
     }
 }
