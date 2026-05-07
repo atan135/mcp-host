@@ -69,5 +69,18 @@ namespace QaTestFramework
         public string result;
         public string error;
         public int durationMs;
+        public bool busy;
+        public string currentRequestId;
+        public string currentMethodName;
+    }
+
+    [Serializable]
+    internal sealed class QaTestStructuredResult
+    {
+        public bool ok;
+        public string status;
+        public string code;
+        public string message;
+        public string error;
     }
 }

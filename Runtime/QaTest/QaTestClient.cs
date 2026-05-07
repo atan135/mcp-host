@@ -697,6 +697,7 @@ namespace QaTestFramework
                 error = "QaTestClient is busy running request " + executionState.requestId + ".",
                 durationMs = 0,
             };
+            ApplyExecutionState(resultMessage);
 
             try
             {
@@ -741,6 +742,7 @@ namespace QaTestFramework
                 object invocationResult = method.Invoke(command.arguments);
                 resultMessage.result = await ResolveInvocationResultAsync(invocationResult);
                 resultMessage.success = true;
+                ApplyResultSemantics(resultMessage);
             }
             catch (TargetInvocationException exception)
             {
@@ -757,6 +759,8 @@ namespace QaTestFramework
             {
                 stopwatch.Stop();
                 resultMessage.durationMs = (int)stopwatch.ElapsedMilliseconds;
+                EndExecution();
+                ApplyExecutionState(resultMessage);
                 try
                 {
                     CancellationToken token = lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None;
@@ -814,6 +818,139 @@ namespace QaTestFramework
             }
 
             return ConvertResultToString(invocationResult);
+        }
+
+        private static void ApplyResultSemantics(QaTestResultMessage resultMessage)
+        {
+            if (!resultMessage.success)
+            {
+                return;
+            }
+
+            string failureReason;
+            if (!TryGetBusinessFailure(resultMessage.result, out failureReason))
+            {
+                return;
+            }
+
+            resultMessage.success = false;
+            if (string.IsNullOrWhiteSpace(resultMessage.error))
+            {
+                resultMessage.error = failureReason;
+            }
+        }
+
+        private static bool TryGetBusinessFailure(string result, out string failureReason)
+        {
+            failureReason = string.Empty;
+            string text = result != null ? result.Trim() : string.Empty;
+            if (text.Length == 0)
+            {
+                return false;
+            }
+
+            if (text.StartsWith("failed:", StringComparison.OrdinalIgnoreCase))
+            {
+                failureReason = text.Substring("failed:".Length).Trim();
+                if (string.IsNullOrEmpty(failureReason))
+                {
+                    failureReason = "QaTest method returned failed.";
+                }
+
+                return true;
+            }
+
+            if (text.Equals("false", StringComparison.OrdinalIgnoreCase))
+            {
+                failureReason = "QaTest method returned False.";
+                return true;
+            }
+
+            QaTestStructuredResult structuredResult;
+            if (TryParseStructuredResult(text, out structuredResult))
+            {
+                if (IsStructuredFailure(text, structuredResult, out failureReason))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryParseStructuredResult(string text, out QaTestStructuredResult structuredResult)
+        {
+            structuredResult = null;
+            if (string.IsNullOrWhiteSpace(text) || text[0] != '{')
+            {
+                return false;
+            }
+
+            if (!ContainsJsonField(text, "ok")
+                && !ContainsJsonField(text, "status")
+                && !ContainsJsonField(text, "code")
+                && !ContainsJsonField(text, "message")
+                && !ContainsJsonField(text, "error"))
+            {
+                return false;
+            }
+
+            try
+            {
+                structuredResult = JsonUtility.FromJson<QaTestStructuredResult>(text);
+                return structuredResult != null;
+            }
+            catch
+            {
+                structuredResult = null;
+                return false;
+            }
+        }
+
+        private static bool IsStructuredFailure(
+            string rawJson,
+            QaTestStructuredResult structuredResult,
+            out string failureReason)
+        {
+            failureReason = string.Empty;
+            bool hasOk = ContainsJsonField(rawJson, "ok");
+            string status = structuredResult.status ?? string.Empty;
+            bool failedStatus = status.Equals("failed", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("failure", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("error", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("canceled", StringComparison.OrdinalIgnoreCase);
+
+            if (!failedStatus && (!hasOk || structuredResult.ok))
+            {
+                return false;
+            }
+
+            failureReason = FirstNonEmpty(
+                structuredResult.message,
+                structuredResult.error,
+                structuredResult.code,
+                status,
+                "QaTest structured result failed.");
+            return true;
+        }
+
+        private static bool ContainsJsonField(string json, string fieldName)
+        {
+            return json.IndexOf("\"" + fieldName + "\"", StringComparison.Ordinal) >= 0;
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(values[i]))
+                {
+                    return values[i].Trim();
+                }
+            }
+
+            return string.Empty;
         }
 
         private Task<object> RunRoutineAsync(IEnumerator routine)
@@ -1223,6 +1360,14 @@ namespace QaTestFramework
         }
 
         private void ApplyExecutionState(QaTestHeartbeatMessage message)
+        {
+            ExecutionState executionState = GetExecutionState();
+            message.busy = executionState.busy;
+            message.currentRequestId = executionState.requestId;
+            message.currentMethodName = executionState.methodName;
+        }
+
+        private void ApplyExecutionState(QaTestResultMessage message)
         {
             ExecutionState executionState = GetExecutionState();
             message.busy = executionState.busy;
