@@ -125,6 +125,6 @@ Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Exa
 
 ## 注意事项
 
-- Unity `.meta` 文件在当前仓库中被忽略；如果需要作为 Unity package 正式分发，应重新评估 `.meta` 文件策略。
+- Unity `.meta` 文件在当前 package 仓库中必须跟踪；新增脚本、asmdef、Samples 或资源时，需要同步提交对应 `.meta` 文件，避免 Unity GUID 在接入工程中漂移。
 - `QaTestClient` 会自动重连，默认重连间隔为 2 秒。
 - 心跳默认每 10 秒发送一次，并会上报 `busy`、`currentRequestId` 和 `currentMethodName`；服务端会清理长时间未心跳的客户端。
