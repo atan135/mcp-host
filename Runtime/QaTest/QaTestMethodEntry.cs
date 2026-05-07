@@ -41,6 +41,7 @@ namespace QaTestFramework
                     name = parameter.Name,
                     type = GetFriendlyTypeName(parameter.ParameterType),
                     isOptional = parameter.IsOptional,
+                    isRequired = !parameter.IsOptional,
                     defaultValue = parameter.HasDefaultValue && parameter.DefaultValue != null
                         ? Convert.ToString(parameter.DefaultValue, CultureInfo.InvariantCulture)
                         : string.Empty,
@@ -73,8 +74,37 @@ namespace QaTestFramework
                 ParameterInfo parameter = Parameters[i];
                 string rawValue = i < rawArguments.Length ? rawArguments[i] : null;
 
-                if (string.IsNullOrEmpty(rawValue))
+                if (rawValue == null)
                 {
+                    if (!parameter.IsOptional)
+                    {
+                        throw new ArgumentException("missing required argument: " + parameter.Name);
+                    }
+
+                    convertedArguments[i] = GetDefaultArgument(parameter);
+                    continue;
+                }
+
+                if (IsExplicitEmptyString(rawValue))
+                {
+                    if (parameter.ParameterType != typeof(string))
+                    {
+                        throw new ArgumentException("explicit empty argument is only valid for string parameter: " + parameter.Name);
+                    }
+
+                    convertedArguments[i] = string.Empty;
+                    continue;
+                }
+
+                if (rawValue.Length == 0)
+                {
+                    if (!parameter.IsOptional)
+                    {
+                        throw new ArgumentException(
+                            "empty required argument: " + parameter.Name +
+                            ". Use {\"$empty\":true} when an empty string is intentional.");
+                    }
+
                     convertedArguments[i] = GetDefaultArgument(parameter);
                     continue;
                 }
@@ -163,6 +193,17 @@ namespace QaTestFramework
             }
 
             return JsonUtility.FromJson(rawValue, targetType);
+        }
+
+        private static bool IsExplicitEmptyString(string rawValue)
+        {
+            if (string.IsNullOrWhiteSpace(rawValue) || rawValue.IndexOf("$empty", StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            string normalized = rawValue.Replace(" ", string.Empty).Replace("\t", string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
+            return string.Equals(normalized, "{\"$empty\":true}", StringComparison.OrdinalIgnoreCase);
         }
 
         private static float ParseFloat(string[] parts, int index)

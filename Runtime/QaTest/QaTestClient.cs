@@ -918,6 +918,7 @@ namespace QaTestFramework
             bool failedStatus = status.Equals("failed", StringComparison.OrdinalIgnoreCase)
                 || status.Equals("failure", StringComparison.OrdinalIgnoreCase)
                 || status.Equals("error", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("unsupported", StringComparison.OrdinalIgnoreCase)
                 || status.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
                 || status.Equals("canceled", StringComparison.OrdinalIgnoreCase);
 

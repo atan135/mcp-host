@@ -34,6 +34,7 @@ namespace QaTestFramework
         public string name;
         public string type;
         public bool isOptional;
+        public bool isRequired;
         public string defaultValue;
     }
 
