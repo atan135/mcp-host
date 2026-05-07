@@ -18,7 +18,16 @@ namespace QaTestFramework
         private const string ClientIdKey = "QaTest.ClientId";
         private const string ServerUrlKey = "QaTest.ServerUrl";
         private const string ClientNameKey = "QaTest.ClientName";
+        public const string EnabledPlayerPrefsKey = "QaTest.Enabled";
+        public const string EnabledEnvironmentVariable = "QA_TEST_ENABLED";
+        private const string EnabledKey = EnabledPlayerPrefsKey;
+        private const string EnabledEnvironmentKey = EnabledEnvironmentVariable;
+        private static bool hasGlobalRuntimeEnabledOverride;
+        private static bool globalRuntimeEnabledOverride;
+        private static string globalRuntimeEnabledSource = "Runtime";
 
+        [SerializeField] private bool enableInEditor = true;
+        [SerializeField] private bool enableInPlayer = false;
         [SerializeField] private string serverUrl = "ws://localhost:3000/ws?role=unity";
         [SerializeField] private string clientName = "";
         [SerializeField] private float reconnectDelaySeconds = 2f;
@@ -49,6 +58,11 @@ namespace QaTestFramework
         private DateTime lastMessageReceivedAtUtc;
         private DateTime lastCommandReceivedAtUtc;
         private DateTime lastResultSentAtUtc;
+        private bool qaEnabled;
+        private bool hasRuntimeEnabledOverride;
+        private bool runtimeEnabledOverride;
+        private string runtimeEnabledSource = "Runtime";
+        private string enabledSource = "Not evaluated";
         private string currentRequestId = "";
         private string currentMethodName = "";
         private int connectAttemptCount;
@@ -258,6 +272,16 @@ namespace QaTestFramework
             get { return registeredMethodCount; }
         }
 
+        public bool QaEnabled
+        {
+            get { return qaEnabled; }
+        }
+
+        public string EnabledSource
+        {
+            get { return enabledSource; }
+        }
+
         public float NextHeartbeatInSeconds
         {
             get { return IsConnected ? Mathf.Max(0f, nextHeartbeatAt - Time.unscaledTime) : 0f; }
@@ -274,14 +298,29 @@ namespace QaTestFramework
 
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            RefreshEnabledState();
             clientId = LoadOrCreateClientId();
             clientName = PlayerPrefs.GetString(ClientNameKey, clientName);
             registry.Refresh();
             registeredMethodCount = registry.Methods.Count;
+
+            if (!qaEnabled)
+            {
+                connectionState = "DisabledByConfig";
+                enabled = false;
+            }
         }
 
         private void OnEnable()
         {
+            RefreshEnabledState();
+            if (!qaEnabled)
+            {
+                connectionState = "DisabledByConfig";
+                enabled = false;
+                return;
+            }
+
             connectionState = "Starting";
             lastError = "";
             lifetimeCts = new CancellationTokenSource();
@@ -304,7 +343,7 @@ namespace QaTestFramework
 
         private void OnDisable()
         {
-            connectionState = "Disabled";
+            connectionState = qaEnabled ? "Disabled" : "DisabledByConfig";
             lastDisconnectedAtUtc = DateTime.UtcNow;
             lifetimeCts?.Cancel();
             _ = CloseSocketAsync();
@@ -354,6 +393,75 @@ namespace QaTestFramework
         public void ClearClientName(bool persist = false, bool resendRegister = true)
         {
             SetClientName(string.Empty, persist, resendRegister);
+        }
+
+        public void SetClientEnabled(bool isEnabled, bool persist = true)
+        {
+            ApplyClientEnabled(isEnabled, persist);
+        }
+
+        public static bool ShouldAutoCreateClient()
+        {
+            return ResolveEnabled(true, false).enabled;
+        }
+
+        public static void SetGlobalEnabled(bool isEnabled, bool persist = true)
+        {
+            hasGlobalRuntimeEnabledOverride = true;
+            globalRuntimeEnabledOverride = isEnabled;
+            globalRuntimeEnabledSource = persist ? "Runtime+PlayerPrefs:" + EnabledKey : "Runtime";
+
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (client == null && isEnabled)
+            {
+                client = CreateClientObject();
+            }
+
+            if (client != null)
+            {
+                client.ApplyClientEnabled(isEnabled, persist);
+            }
+            else if (persist)
+            {
+                PlayerPrefs.SetInt(EnabledKey, isEnabled ? 1 : 0);
+                PlayerPrefs.Save();
+            }
+        }
+
+        public static void ClearGlobalEnabled()
+        {
+            hasGlobalRuntimeEnabledOverride = false;
+            globalRuntimeEnabledOverride = false;
+            globalRuntimeEnabledSource = "Runtime";
+            PlayerPrefs.DeleteKey(EnabledKey);
+            PlayerPrefs.Save();
+
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (client != null)
+            {
+                client.hasRuntimeEnabledOverride = false;
+                client.RefreshEnabledState();
+                if (!client.qaEnabled && client.enabled)
+                {
+                    client.enabled = false;
+                }
+                else if (client.qaEnabled && !client.enabled)
+                {
+                    client.enabled = true;
+                }
+            }
+        }
+
+        internal static QaTestClient CreateClientObject()
+        {
+            QaTestClient existingClient = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (existingClient != null)
+            {
+                return existingClient;
+            }
+
+            GameObject clientObject = new GameObject("[QaTestClient]");
+            return clientObject.AddComponent<QaTestClient>();
         }
 
         public void RefreshRegistration()
@@ -880,6 +988,54 @@ namespace QaTestFramework
             return resolvedUrl.Contains("?") ? resolvedUrl + "&role=unity" : resolvedUrl + "?role=unity";
         }
 
+        private void ApplyClientEnabled(bool isEnabled, bool persist)
+        {
+            if (persist)
+            {
+                PlayerPrefs.SetInt(EnabledKey, isEnabled ? 1 : 0);
+                PlayerPrefs.Save();
+            }
+
+            hasRuntimeEnabledOverride = true;
+            runtimeEnabledOverride = isEnabled;
+            runtimeEnabledSource = persist ? "Runtime+PlayerPrefs:" + EnabledKey : "Runtime";
+
+            qaEnabled = isEnabled;
+            enabledSource = runtimeEnabledSource;
+
+            if (isEnabled)
+            {
+                if (!enabled)
+                {
+                    enabled = true;
+                }
+            }
+            else
+            {
+                connectionState = "DisabledByConfig";
+                lifetimeCts?.Cancel();
+                _ = CloseSocketAsync();
+                if (enabled)
+                {
+                    enabled = false;
+                }
+            }
+        }
+
+        private void RefreshEnabledState()
+        {
+            if (hasRuntimeEnabledOverride)
+            {
+                qaEnabled = runtimeEnabledOverride;
+                enabledSource = runtimeEnabledSource;
+                return;
+            }
+
+            EnabledResolution resolution = ResolveEnabled(enableInEditor, enableInPlayer);
+            qaEnabled = resolution.enabled;
+            enabledSource = resolution.source;
+        }
+
         private string ResolveClientName()
         {
             if (!string.IsNullOrWhiteSpace(clientName))
@@ -908,6 +1064,122 @@ namespace QaTestFramework
             }
 
             return string.Empty;
+        }
+
+        private static EnabledResolution ResolveEnabled(bool editorDefault, bool playerDefault)
+        {
+            if (hasGlobalRuntimeEnabledOverride)
+            {
+                return new EnabledResolution { enabled = globalRuntimeEnabledOverride, source = globalRuntimeEnabledSource };
+            }
+
+            bool parsedValue;
+            string source;
+            if (TryGetCommandLineEnabled(out parsedValue, out source))
+            {
+                return new EnabledResolution { enabled = parsedValue, source = source };
+            }
+
+            string environmentValue = Environment.GetEnvironmentVariable(EnabledEnvironmentKey);
+            if (TryParseBoolean(environmentValue, out parsedValue))
+            {
+                return new EnabledResolution { enabled = parsedValue, source = "Environment:" + EnabledEnvironmentKey };
+            }
+
+            if (PlayerPrefs.HasKey(EnabledKey))
+            {
+                return new EnabledResolution { enabled = PlayerPrefs.GetInt(EnabledKey, 0) != 0, source = "PlayerPrefs:" + EnabledKey };
+            }
+
+            bool defaultValue = Application.isEditor ? editorDefault : playerDefault;
+            return new EnabledResolution { enabled = defaultValue, source = Application.isEditor ? "Inspector:enableInEditor" : "Inspector:enableInPlayer" };
+        }
+
+        private static bool TryGetCommandLineEnabled(out bool value, out string source)
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i];
+                if (arg.Equals("--qa-enable", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--qa-enabled", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--qa-test-enable", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = true;
+                    source = "CommandLine:" + arg;
+                    return true;
+                }
+
+                if (arg.Equals("--qa-disable", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--qa-disabled", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--qa-test-disable", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = false;
+                    source = "CommandLine:" + arg;
+                    return true;
+                }
+
+                string inlinePrefix = "--qa-enabled=";
+                if (arg.StartsWith(inlinePrefix, StringComparison.OrdinalIgnoreCase) &&
+                    TryParseBoolean(arg.Substring(inlinePrefix.Length), out value))
+                {
+                    source = "CommandLine:" + inlinePrefix;
+                    return true;
+                }
+
+                inlinePrefix = "--qa-test-enabled=";
+                if (arg.StartsWith(inlinePrefix, StringComparison.OrdinalIgnoreCase) &&
+                    TryParseBoolean(arg.Substring(inlinePrefix.Length), out value))
+                {
+                    source = "CommandLine:" + inlinePrefix;
+                    return true;
+                }
+
+                if ((arg.Equals("--qa-enabled", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("--qa-test-enabled", StringComparison.OrdinalIgnoreCase)) &&
+                    i + 1 < args.Length &&
+                    TryParseBoolean(args[i + 1], out value))
+                {
+                    source = "CommandLine:" + arg;
+                    return true;
+                }
+            }
+
+            value = false;
+            source = string.Empty;
+            return false;
+        }
+
+        private static bool TryParseBoolean(string rawValue, out bool value)
+        {
+            value = false;
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                return false;
+            }
+
+            string normalized = rawValue.Trim();
+            if (normalized.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("on", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("enabled", StringComparison.OrdinalIgnoreCase))
+            {
+                value = true;
+                return true;
+            }
+
+            if (normalized.Equals("0", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("false", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("no", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("disabled", StringComparison.OrdinalIgnoreCase))
+            {
+                value = false;
+                return true;
+            }
+
+            return false;
         }
 
         private static string LoadOrCreateClientId()
@@ -984,6 +1256,12 @@ namespace QaTestFramework
             public bool busy;
             public string requestId;
             public string methodName;
+        }
+
+        private struct EnabledResolution
+        {
+            public bool enabled;
+            public string source;
         }
     }
 }

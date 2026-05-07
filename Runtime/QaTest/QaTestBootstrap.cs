@@ -7,14 +7,17 @@ namespace QaTestFramework
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void CreateClient()
         {
+            if (!QaTestClient.ShouldAutoCreateClient())
+            {
+                return;
+            }
+
             if (UnityEngine.Object.FindObjectOfType<QaTestClient>() != null)
             {
                 return;
             }
 
-            GameObject clientObject = new GameObject("[QaTestClient]");
-            clientObject.AddComponent<QaTestClient>();
-            UnityEngine.Object.DontDestroyOnLoad(clientObject);
+            QaTestClient.CreateClientObject();
         }
     }
 }

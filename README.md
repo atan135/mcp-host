@@ -1,6 +1,6 @@
 # Unity QA Client
 
-本仓库包含 QA Test Framework 的 Unity 客户端脚本。进入 Play Mode 后，客户端会自动连接 QA register server，扫描当前 AppDomain 中带 `[QaTest]` 的方法并注册到服务端，随后可以接收 Web 控制台或 MCP 工具发来的执行命令。
+本仓库包含 QA Test Framework 的 Unity 客户端脚本。QA 功能启用后，客户端会在 Play Mode 或 Player 启动时连接 QA register server，扫描当前 AppDomain 中带 `[QaTest]` 的方法并注册到服务端，随后可以接收 Web 控制台或 MCP 工具发来的执行命令。
 
 ## 目录结构
 
@@ -9,7 +9,7 @@
 
 ## 接入方式
 
-通过 Package Manager 的 Git URL 引入本仓库，或把本目录作为本地 package 添加到 Unity 工程。运行时代码位于 `Runtime/`，并通过 `QaTestFramework.UnityClient` 程序集定义编译。`QaTestBootstrap` 会在场景加载后自动创建 `[QaTestClient]` 对象，并通过 `DontDestroyOnLoad` 保持连接。
+通过 Package Manager 的 Git URL 引入本仓库，或把本目录作为本地 package 添加到 Unity 工程。运行时代码位于 `Runtime/`，并通过 `QaTestFramework.UnityClient` 程序集定义编译。`QaTestBootstrap` 会在 QA 功能启用时于场景加载后自动创建 `[QaTestClient]` 对象，并通过 `DontDestroyOnLoad` 保持连接。
 
 在 `Packages/manifest.json` 中直接引用 Git 仓库：
 
@@ -36,6 +36,48 @@ Unity.exe -projectPath <projectPath> --qa-server-url ws://localhost:3000/ws?role
 ```
 
 也可以在场景中预置 `QaTestClient` 组件，并通过 Inspector 配置 `serverUrl` 序列化字段。客户端会自动补齐 `role=unity` 参数。
+
+## 启用开关
+
+QA 功能默认策略：
+
+- Editor 默认启用，便于本地 Play Mode 调试。
+- Player 默认关闭，避免正式包默认暴露 QA WebSocket 能力。
+
+启用状态按以下优先级解析：
+
+1. 运行时 API：`QaTestClient.SetClientEnabled(...)` 或 `QaTestClient.SetGlobalEnabled(...)`。
+2. 命令行参数：`--qa-enable`、`--qa-disable`、`--qa-enabled=true|false`、`--qa-test-enabled=true|false`。
+3. 环境变量：`QA_TEST_ENABLED=1|0`。
+4. PlayerPrefs：`QaTest.Enabled`。
+5. Inspector 默认值：`enableInEditor`、`enableInPlayer`。
+
+外部代码可以直接控制全局开关：
+
+```csharp
+using QaTestFramework;
+
+QaTestClient.SetGlobalEnabled(true);   // 持久化启用；如果当前没有客户端，会自动创建并连接
+QaTestClient.SetGlobalEnabled(false);  // 持久化关闭并断开连接
+QaTestClient.ClearGlobalEnabled();     // 清除 PlayerPrefs 和运行时覆盖，回到命令行/环境变量/Inspector 默认值
+```
+
+`SetGlobalEnabled(false, persist: false)` 可以在客户端创建前临时阻止本次进程自动创建；`persist: true` 会写入 PlayerPrefs，影响后续启动。
+
+也可以直接写入 PlayerPrefs：
+
+```csharp
+PlayerPrefs.SetInt(QaTestClient.EnabledPlayerPrefsKey, 1);
+PlayerPrefs.Save();
+```
+
+命令行示例：
+
+```powershell
+Unity.exe -projectPath <projectPath> --qa-enable --qa-server-url ws://localhost:3000/ws
+Game.exe --qa-enabled=true
+Game.exe --qa-disable
+```
 
 ## 定义测试方法
 
@@ -105,7 +147,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 ## 执行链路
 
 1. 启动 QA register server。
-2. Unity 进入 Play Mode，`QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
+2. Unity 进入 Play Mode 或 Player 启动，QA 功能启用时 `QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
 3. 客户端发送 `register` 消息，包含 `clientId`、名称、平台、Unity 版本、方法列表和本地 busy 状态。
 4. Web 控制台或 MCP 工具发送 `execute` 命令。
 5. Unity 主线程执行目标 `[QaTest]` 方法，并回传 `qa_result`。
@@ -126,5 +168,6 @@ Package Manager 的 Samples 面板可以导入 `QaTest Examples`。`Samples~/Exa
 ## 注意事项
 
 - Unity `.meta` 文件在当前 package 仓库中必须跟踪；新增脚本、asmdef、Samples 或资源时，需要同步提交对应 `.meta` 文件，避免 Unity GUID 在接入工程中漂移。
+- QA 功能在 Player 中默认关闭；需要在测试包中启用时，请使用命令行、环境变量、PlayerPrefs、Inspector 或 `QaTestClient.SetGlobalEnabled(true)` 显式开启。
 - `QaTestClient` 会自动重连，默认重连间隔为 2 秒。
 - 心跳默认每 10 秒发送一次，并会上报 `busy`、`currentRequestId` 和 `currentMethodName`；服务端会清理长时间未心跳的客户端。

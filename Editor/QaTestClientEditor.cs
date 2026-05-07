@@ -32,6 +32,8 @@ namespace QaTestFramework.Editor
             {
                 EditorGUILayout.TextField("Connection State", client.ConnectionState);
                 EditorGUILayout.TextField("Socket State", client.SocketState);
+                EditorGUILayout.Toggle("QA Enabled", client.QaEnabled);
+                EditorGUILayout.TextField("Enabled Source", client.EnabledSource);
                 EditorGUILayout.Toggle("Socket Connected", client.IsSocketConnected);
                 EditorGUILayout.TextField("Client Id", client.ClientId);
                 EditorGUILayout.TextField("Resolved Name", client.ResolvedClientName);
@@ -96,6 +98,20 @@ namespace QaTestFramework.Editor
                 if (GUILayout.Button("Copy Client Id"))
                 {
                     EditorGUIUtility.systemCopyBuffer = client.ClientId;
+                }
+            }
+
+            EditorGUILayout.Space(4f);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Enable QA"))
+                {
+                    client.SetClientEnabled(true);
+                }
+
+                if (GUILayout.Button("Disable QA"))
+                {
+                    client.SetClientEnabled(false);
                 }
             }
         }
