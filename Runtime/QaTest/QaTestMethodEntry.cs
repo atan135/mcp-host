@@ -22,6 +22,20 @@ namespace QaTestFramework
         public QaTestAttribute Attribute { get; }
         public ParameterInfo[] Parameters { get; }
 
+        public bool IsTargetAvailable
+        {
+            get
+            {
+                if (Method.IsStatic)
+                {
+                    return true;
+                }
+
+                UnityEngine.Object unityTarget = Target as UnityEngine.Object;
+                return unityTarget != null;
+            }
+        }
+
         public string DisplayName
         {
             get
@@ -62,6 +76,11 @@ namespace QaTestFramework
 
         public object Invoke(string[] rawArguments)
         {
+            if (!IsTargetAvailable)
+            {
+                throw new MissingReferenceException("QaTest method target is no longer available: " + Id);
+            }
+
             object[] convertedArguments = ConvertArguments(rawArguments ?? Array.Empty<string>());
             return Method.Invoke(Target, convertedArguments);
         }

@@ -301,8 +301,6 @@ namespace QaTestFramework
             RefreshEnabledState();
             clientId = LoadOrCreateClientId();
             clientName = PlayerPrefs.GetString(ClientNameKey, clientName);
-            registry.Refresh();
-            registeredMethodCount = registry.Methods.Count;
 
             if (!qaEnabled)
             {
@@ -471,6 +469,8 @@ namespace QaTestFramework
                 return;
             }
 
+            registry.Refresh();
+            registeredMethodCount = registry.Methods.Count;
             CancellationToken token = lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None;
             _ = SendRegisterSafeAsync(token);
         }
@@ -730,13 +730,7 @@ namespace QaTestFramework
 
             try
             {
-                registry.Refresh();
-                string lookupKey = string.IsNullOrWhiteSpace(command.methodId) ? command.methodName : command.methodId;
-                if (!registry.TryGet(lookupKey, out QaTestMethodEntry method))
-                {
-                    throw new InvalidOperationException("QaTest method not found: " + lookupKey);
-                }
-
+                QaTestMethodEntry method = ResolveMethod(command);
                 resultMessage.methodId = method.Id;
                 resultMessage.methodName = method.DisplayName;
                 object invocationResult = method.Invoke(command.arguments);
@@ -778,6 +772,34 @@ namespace QaTestFramework
                     Debug.LogWarning("[QaTest] Failed to send result: " + exception.Message);
                 }
             }
+        }
+
+        private QaTestMethodEntry ResolveMethod(QaTestServerCommand command)
+        {
+            string lookupKey = string.IsNullOrWhiteSpace(command.methodId) ? command.methodName : command.methodId;
+            bool hadStaleTarget = false;
+
+            if (registry.TryGet(lookupKey, out QaTestMethodEntry method))
+            {
+                if (method.IsTargetAvailable)
+                {
+                    return method;
+                }
+
+                hadStaleTarget = true;
+            }
+
+            registry.Refresh();
+            registeredMethodCount = registry.Methods.Count;
+            if (registry.TryGet(lookupKey, out method) && method.IsTargetAvailable)
+            {
+                return method;
+            }
+
+            string reason = hadStaleTarget
+                ? "QaTest method target is no longer available"
+                : "QaTest method not found";
+            throw new InvalidOperationException(reason + ": " + lookupKey);
         }
 
         private async Task<string> ResolveInvocationResultAsync(object invocationResult)
