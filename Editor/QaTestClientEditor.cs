@@ -8,6 +8,14 @@ namespace QaTestFramework.Editor
     [CustomEditor(typeof(QaTestClient))]
     public sealed class QaTestClientEditor : UnityEditor.Editor
     {
+        private const string RuntimeDiagnosticsFoldoutKey = "QaTestFramework.QaTestClientEditor.RuntimeDiagnosticsExpanded";
+        private bool runtimeDiagnosticsExpanded;
+
+        private void OnEnable()
+        {
+            runtimeDiagnosticsExpanded = SessionState.GetBool(RuntimeDiagnosticsFoldoutKey, true);
+        }
+
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
@@ -16,7 +24,8 @@ namespace QaTestFramework.Editor
 
             QaTestClient client = (QaTestClient)target;
             EditorGUILayout.Space(8f);
-            DrawRuntimeStatus(client);
+            DrawRuntimeStatus(client, ref runtimeDiagnosticsExpanded);
+            SessionState.SetBool(RuntimeDiagnosticsFoldoutKey, runtimeDiagnosticsExpanded);
 
             if (Application.isPlaying)
             {
@@ -24,9 +33,14 @@ namespace QaTestFramework.Editor
             }
         }
 
-        private static void DrawRuntimeStatus(QaTestClient client)
+        private static void DrawRuntimeStatus(QaTestClient client, ref bool diagnosticsExpanded)
         {
-            EditorGUILayout.LabelField("Runtime Diagnostics", EditorStyles.boldLabel);
+            diagnosticsExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(diagnosticsExpanded, "Runtime Diagnostics");
+            if (!diagnosticsExpanded)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
             using (new EditorGUI.DisabledScope(true))
             {
@@ -114,6 +128,8 @@ namespace QaTestFramework.Editor
                     client.SetClientEnabled(false);
                 }
             }
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
         private static string FormatTime(DateTime utc)
