@@ -26,6 +26,7 @@ namespace QaTestFramework.Editor
             EditorGUILayout.Space(8f);
             DrawRuntimeStatus(client, ref runtimeDiagnosticsExpanded);
             SessionState.SetBool(RuntimeDiagnosticsFoldoutKey, runtimeDiagnosticsExpanded);
+            DrawActions(client);
 
             if (Application.isPlaying)
             {
@@ -51,6 +52,7 @@ namespace QaTestFramework.Editor
                 EditorGUILayout.Toggle("Socket Connected", client.IsSocketConnected);
                 EditorGUILayout.TextField("Client Id", client.ClientId);
                 EditorGUILayout.TextField("Resolved Name", client.ResolvedClientName);
+                EditorGUILayout.TextField("IP Address", client.LocalIpAddress);
                 EditorGUILayout.TextField("Resolved Server Url", client.ResolvedServerUrl);
                 EditorGUILayout.IntField("Registered Methods", client.RegisteredMethodCount);
                 EditorGUILayout.IntField("Pending Main Thread Actions", client.PendingMainThreadActionCount);
@@ -98,6 +100,11 @@ namespace QaTestFramework.Editor
                 EditorGUILayout.IntField("Result Send Failures", client.ResultSendFailureCount);
             }
 
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+
+        private static void DrawActions(QaTestClient client)
+        {
             EditorGUILayout.Space(4f);
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -128,8 +135,6 @@ namespace QaTestFramework.Editor
                     client.SetClientEnabled(false);
                 }
             }
-
-            EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
         private static string FormatTime(DateTime utc)

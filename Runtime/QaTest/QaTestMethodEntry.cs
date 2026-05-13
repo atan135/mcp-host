@@ -7,9 +7,10 @@ namespace QaTestFramework
 {
     internal sealed class QaTestMethodEntry
     {
-        public QaTestMethodEntry(string id, MethodInfo method, object target, QaTestAttribute attribute)
+        public QaTestMethodEntry(string id, string fullId, MethodInfo method, object target, QaTestAttribute attribute)
         {
             Id = id;
+            FullId = fullId;
             Method = method;
             Target = target;
             Attribute = attribute;
@@ -17,6 +18,7 @@ namespace QaTestFramework
         }
 
         public string Id { get; }
+        public string FullId { get; }
         public MethodInfo Method { get; }
         public object Target { get; }
         public QaTestAttribute Attribute { get; }
@@ -50,10 +52,12 @@ namespace QaTestFramework
             for (int i = 0; i < Parameters.Length; i++)
             {
                 ParameterInfo parameter = Parameters[i];
+                QaParamAttribute qaParamAttribute = parameter.GetCustomAttribute<QaParamAttribute>(true);
                 parameterDtos[i] = new QaTestParameterDto
                 {
                     name = parameter.Name,
                     type = GetFriendlyTypeName(parameter.ParameterType),
+                    description = qaParamAttribute != null ? qaParamAttribute.Description ?? string.Empty : string.Empty,
                     isOptional = parameter.IsOptional,
                     isRequired = !parameter.IsOptional,
                     defaultValue = parameter.HasDefaultValue && parameter.DefaultValue != null

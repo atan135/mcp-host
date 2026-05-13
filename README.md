@@ -89,7 +89,7 @@ using QaTestFramework;
 public static class LoginQaTests
 {
     [QaTest("点击登录按钮", "模拟点击登录按钮并返回执行结果。")]
-    private static string ClickLoginButton(string objectName)
+    private static string ClickLoginButton([QaParam("登录按钮对象名")] string objectName)
     {
         return "clicked: " + objectName;
     }
@@ -112,7 +112,7 @@ public sealed class LoginQaPanel : MonoBehaviour
 }
 ```
 
-支持的参数会从服务端传入的字符串数组转换，可直接使用 `string`、`bool`、`int`、`long`、`float`、`double`、枚举、`Vector2`、`Vector3`、`Vector4`、可空类型、可选参数，以及可由 `JsonUtility.FromJson` 解析的类型。方法 ID 由声明类型、方法名和参数类型生成；实例方法会额外包含 Unity 对象实例 ID。
+支持的参数会从服务端传入的字符串数组转换，可直接使用 `string`、`bool`、`int`、`long`、`float`、`double`、枚举、`Vector2`、`Vector3`、`Vector4`、可空类型、可选参数，以及可由 `JsonUtility.FromJson` 解析的类型。参数可以添加 `[QaParam("参数说明")]`，说明文本会注册为 `methods[].parameters[].description` 并通过 WebSocket 透传给服务端和控制端。方法 ID 由声明类型、方法名和参数类型生成；实例方法会额外包含 Unity 对象实例 ID。
 
 ## 返回值
 
@@ -139,7 +139,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 默认名称为：
 
 ```text
-<Application.productName>@<SystemInfo.deviceName>
+<Application.productName>/<SystemInfo.deviceName>
 ```
 
 可以通过 `QaTestClient.SetClientName(newName, persist: true)` 设置自定义名称。自定义名称会保存到 PlayerPrefs，并在重新注册时同步到服务端。
@@ -148,7 +148,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 1. 启动 QA register server。
 2. Unity 进入 Play Mode 或 Player 启动，QA 功能启用时 `QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
-3. 客户端发送 `register` 消息，包含 `clientId`、名称、平台、Unity 版本、方法列表和本地 busy 状态。
+3. 客户端发送 `register` 消息，包含 `clientId`、名称、IP 地址、平台、Unity 版本、方法列表和本地 busy 状态。
 4. Web 控制台或 MCP 工具发送 `execute` 命令。
 5. Unity 主线程执行目标 `[QaTest]` 方法，并回传 `qa_result`。
 6. 如果 Unity 本地已有请求在执行，新收到的 `execute` 会立即返回失败结果，不会并发执行第二个测试方法。

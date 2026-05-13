@@ -8,6 +8,8 @@ namespace QaTestFramework
         public string type = "register";
         public string clientId;
         public string name;
+        public string ipAddress;
+        public string[] ipAddresses;
         public string platform;
         public string unityVersion;
         public bool busy;
@@ -33,6 +35,7 @@ namespace QaTestFramework
     {
         public string name;
         public string type;
+        public string description;
         public bool isOptional;
         public bool isRequired;
         public string defaultValue;

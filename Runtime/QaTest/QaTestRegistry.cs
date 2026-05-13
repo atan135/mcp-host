@@ -9,6 +9,7 @@ namespace QaTestFramework
     internal sealed class QaTestRegistry
     {
         private readonly Dictionary<string, QaTestMethodEntry> methods = new Dictionary<string, QaTestMethodEntry>();
+        private readonly Dictionary<string, QaTestMethodEntry> methodsByFullId = new Dictionary<string, QaTestMethodEntry>();
 
         public IReadOnlyCollection<QaTestMethodEntry> Methods
         {
@@ -18,13 +19,22 @@ namespace QaTestFramework
         public void Refresh()
         {
             methods.Clear();
+            methodsByFullId.Clear();
+            List<QaTestMethodCandidate> candidates = new List<QaTestMethodCandidate>();
 
             foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (Type type in SafeGetTypes(assembly))
                 {
-                    RegisterType(type);
+                    CollectType(type, candidates);
                 }
+            }
+
+            ValidateUniqueMethodNames(candidates);
+
+            foreach (QaTestMethodCandidate candidate in candidates)
+            {
+                RegisterMethod(candidate.Method, candidate.Attribute);
             }
         }
 
@@ -35,10 +45,16 @@ namespace QaTestFramework
                 return true;
             }
 
+            if (!string.IsNullOrWhiteSpace(methodId) && methodsByFullId.TryGetValue(methodId, out entry))
+            {
+                return true;
+            }
+
             entry = methods.Values.FirstOrDefault(method =>
                 method.Method.Name == methodId ||
                 method.DisplayName == methodId ||
-                method.Id == methodId);
+                method.Id == methodId ||
+                method.FullId == methodId);
             return entry != null;
         }
 
@@ -51,7 +67,7 @@ namespace QaTestFramework
                 .ToArray();
         }
 
-        private void RegisterType(Type type)
+        private void CollectType(Type type, List<QaTestMethodCandidate> candidates)
         {
             if (type == null)
             {
@@ -67,7 +83,25 @@ namespace QaTestFramework
                     continue;
                 }
 
-                RegisterMethod(method, attribute);
+                candidates.Add(new QaTestMethodCandidate(method, attribute));
+            }
+        }
+
+        private static void ValidateUniqueMethodNames(IEnumerable<QaTestMethodCandidate> candidates)
+        {
+            Dictionary<string, MethodInfo> methodsByName = new Dictionary<string, MethodInfo>();
+            foreach (QaTestMethodCandidate candidate in candidates)
+            {
+                string methodName = candidate.Method.Name;
+                if (methodsByName.TryGetValue(methodName, out MethodInfo existing))
+                {
+                    throw new InvalidOperationException(
+                        "Duplicate QaTest method name: " + methodName +
+                        ". QaTest method names must be globally unique. Existing=" + BuildDefinitionMethodId(existing) +
+                        ", Duplicate=" + BuildDefinitionMethodId(candidate.Method));
+                }
+
+                methodsByName[methodName] = candidate.Method;
             }
         }
 
@@ -86,6 +120,13 @@ namespace QaTestFramework
             }
 
             UnityEngine.Object[] targets = UnityEngine.Object.FindObjectsOfType(declaringType, true);
+            if (targets.Length > 1)
+            {
+                throw new InvalidOperationException(
+                    "Multiple QaTest targets found for method: " + BuildDefinitionMethodId(method) +
+                    ". Instance QaTest methods must resolve to a single target when short method IDs are enabled.");
+            }
+
             foreach (UnityEngine.Object target in targets)
             {
                 AddMethod(method, target, attribute);
@@ -94,15 +135,47 @@ namespace QaTestFramework
 
         private void AddMethod(MethodInfo method, object target, QaTestAttribute attribute)
         {
-            string id = BuildMethodId(method, target);
-            methods[id] = new QaTestMethodEntry(id, method, target, attribute);
+            string methodName = method.Name;
+            QaTestMethodEntry duplicate = methods.Values.FirstOrDefault(entry => entry.Method.Name == methodName);
+            if (duplicate != null)
+            {
+                throw new InvalidOperationException(
+                    "Duplicate QaTest method name: " + methodName +
+                    ". QaTest method names must be globally unique. Existing=" + duplicate.FullId +
+                    ", Duplicate=" + BuildFullMethodId(method, target));
+            }
+
+            string id = BuildShortMethodId(method);
+            string fullId = BuildFullMethodId(method, target);
+            if (methods.ContainsKey(id))
+            {
+                throw new InvalidOperationException(
+                    "Duplicate QaTest method signature: " + id +
+                    ". QaTest short method signatures must be globally unique. Existing=" + methods[id].FullId +
+                    ", Duplicate=" + fullId);
+            }
+
+            QaTestMethodEntry entry = new QaTestMethodEntry(id, fullId, method, target, attribute);
+            methods[id] = entry;
+            methodsByFullId[fullId] = entry;
         }
 
-        private static string BuildMethodId(MethodInfo method, object target)
+        private static string BuildShortMethodId(MethodInfo method)
+        {
+            string parameters = string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName));
+            return method.Name + "(" + parameters + ")";
+        }
+
+        private static string BuildDefinitionMethodId(MethodInfo method)
         {
             string declaringTypeName = method.DeclaringType != null ? method.DeclaringType.FullName : "UnknownType";
             string parameters = string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName));
-            string id = declaringTypeName + "." + method.Name + "(" + parameters + ")";
+            return declaringTypeName + "." + method.Name + "(" + parameters + ")";
+        }
+
+        private static string BuildFullMethodId(MethodInfo method, object target)
+        {
+            string id = BuildDefinitionMethodId(method);
 
             UnityEngine.Object unityTarget = target as UnityEngine.Object;
             if (unityTarget != null)
@@ -127,6 +200,18 @@ namespace QaTestFramework
             {
                 return Array.Empty<Type>();
             }
+        }
+
+        private sealed class QaTestMethodCandidate
+        {
+            public QaTestMethodCandidate(MethodInfo method, QaTestAttribute attribute)
+            {
+                Method = method;
+                Attribute = attribute;
+            }
+
+            public MethodInfo Method { get; }
+            public QaTestAttribute Attribute { get; }
         }
     }
 }

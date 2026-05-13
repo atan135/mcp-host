@@ -1,9 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.WebSockets;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -44,6 +47,8 @@ namespace QaTestFramework
         private string clientId;
         private float nextHeartbeatAt;
         private string resolvedServerUrl = "";
+        private string localIpAddress = "";
+        private string[] localIpAddresses = new string[0];
         private string connectionState = "Disabled";
         private string lastError = "";
         private string lastServerMessageType = "";
@@ -100,6 +105,11 @@ namespace QaTestFramework
         public string ResolvedServerUrl
         {
             get { return string.IsNullOrWhiteSpace(resolvedServerUrl) ? BuildServerUrl() : resolvedServerUrl; }
+        }
+
+        public string LocalIpAddress
+        {
+            get { return localIpAddress; }
         }
 
         public string ConnectionState
@@ -287,6 +297,11 @@ namespace QaTestFramework
             get { return IsConnected ? Mathf.Max(0f, nextHeartbeatAt - Time.unscaledTime) : 0f; }
         }
 
+        private void Reset()
+        {
+            AssignDefaultClientNameIfEmpty();
+        }
+
         private void Awake()
         {
             QaTestClient[] clients = FindObjectsOfType<QaTestClient>();
@@ -300,7 +315,9 @@ namespace QaTestFramework
             DontDestroyOnLoad(gameObject);
             RefreshEnabledState();
             clientId = LoadOrCreateClientId();
-            clientName = PlayerPrefs.GetString(ClientNameKey, clientName);
+            clientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, clientName));
+            AssignDefaultClientNameIfEmpty();
+            RefreshLocalIpAddresses();
 
             if (!qaEnabled)
             {
@@ -1019,10 +1036,13 @@ namespace QaTestFramework
 
         private async Task SendRegisterAsync(CancellationToken token)
         {
+            RefreshLocalIpAddresses();
             QaTestRegisterMessage registerMessage = new QaTestRegisterMessage
             {
                 clientId = clientId,
                 name = ResolveClientName(),
+                ipAddress = localIpAddress,
+                ipAddresses = localIpAddresses,
                 platform = Application.platform.ToString(),
                 unityVersion = Application.unityVersion,
                 methods = registry.ToDtos(),
@@ -1203,7 +1223,119 @@ namespace QaTestFramework
                 return clientName;
             }
 
-            return Application.productName + "@" + SystemInfo.deviceName;
+            return GetDefaultClientName();
+        }
+
+        private void AssignDefaultClientNameIfEmpty()
+        {
+            clientName = NormalizeClientName(clientName);
+            if (string.IsNullOrWhiteSpace(clientName) || IsLegacyDefaultClientName(clientName))
+            {
+                clientName = GetDefaultClientName();
+            }
+        }
+
+        private static string GetDefaultClientName()
+        {
+            string projectName = GetUnityProjectName();
+            string machineName = GetMachineName();
+            if (!string.IsNullOrWhiteSpace(projectName) && !string.IsNullOrWhiteSpace(machineName))
+            {
+                return projectName + "/" + machineName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(projectName))
+            {
+                return projectName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(machineName))
+            {
+                return machineName;
+            }
+
+            return "QaTestClient";
+        }
+
+        private static string GetUnityProjectName()
+        {
+            string productName = NormalizeClientName(Application.productName);
+            if (!string.IsNullOrWhiteSpace(productName))
+            {
+                return productName;
+            }
+
+            try
+            {
+                string dataPath = Application.dataPath;
+                if (!string.IsNullOrWhiteSpace(dataPath))
+                {
+                    DirectoryInfo projectDirectory = Directory.GetParent(dataPath);
+                    if (projectDirectory != null)
+                    {
+                        return NormalizeClientName(projectDirectory.Name);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsLegacyDefaultClientName(string value)
+        {
+            string normalized = NormalizeClientName(value);
+            string projectName = GetUnityProjectName();
+
+            return !string.IsNullOrWhiteSpace(normalized)
+                && (normalized.Equals(NormalizeClientName(SystemInfo.deviceName), StringComparison.Ordinal)
+                    || normalized.Equals(NormalizeClientName(Environment.MachineName), StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(projectName)
+                        && normalized.StartsWith(projectName + " / ", StringComparison.Ordinal)));
+        }
+
+        private static string GetMachineName()
+        {
+            return FirstNonEmpty(
+                NormalizeClientName(SystemInfo.deviceName),
+                NormalizeClientName(Environment.MachineName));
+        }
+
+        private void RefreshLocalIpAddresses()
+        {
+            localIpAddresses = GetLocalIpAddresses();
+            localIpAddress = localIpAddresses.Length > 0 ? localIpAddresses[0] : string.Empty;
+        }
+
+        private static string[] GetLocalIpAddresses()
+        {
+            List<string> addresses = new List<string>();
+
+            try
+            {
+                IPHostEntry host = Dns.GetHostEntry(Dns.GetHostName());
+                foreach (IPAddress address in host.AddressList)
+                {
+                    if (address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(address))
+                    {
+                        continue;
+                    }
+
+                    string value = address.ToString();
+                    if (!addresses.Contains(value))
+                    {
+                        addresses.Add(value);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[QaTest] Failed to resolve local IP address: " + exception.Message);
+            }
+
+            return addresses.ToArray();
         }
 
         private static string GetCommandLineServerUrl()
