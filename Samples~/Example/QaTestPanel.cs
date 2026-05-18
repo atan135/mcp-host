@@ -7,7 +7,7 @@ namespace QaTestFramework.Example
 {
     public sealed class QaTestPanel : MonoBehaviour
     {
-        [QaTest("面板是否存在", "输出面板存在性检查的触发参数和模拟结果。")]
+        [QaTest("面板是否存在", "输出面板存在性检查的触发参数和模拟结果。", true)]
         private static bool PanelExists(string objectName)
         {
             QaTestLog.LogInput("QaTestPanel", "面板是否存在", "objectName=" + objectName);
@@ -25,7 +25,7 @@ namespace QaTestFramework.Example
             return result;
         }
 
-        [QaTest("获取面板显隐状态", "输出获取面板显隐状态的触发参数和模拟结果。")]
+        [QaTest("获取面板显隐状态", "输出获取面板显隐状态的触发参数和模拟结果。", true)]
         private static string GetPanelActiveState(string objectName)
         {
             QaTestLog.LogInput("QaTestPanel", "获取面板显隐状态", "objectName=" + objectName);
@@ -34,7 +34,7 @@ namespace QaTestFramework.Example
             return result;
         }
 
-        [QaTest("等待面板显隐状态", "输出等待面板显隐状态的触发参数和模拟结果。")]
+        [QaTest("等待面板显隐状态", "输出等待面板显隐状态的触发参数和模拟结果。", true)]
         private static QaTestCoroutineResult WaitPanelActive(string objectName, bool expectedActive = true, float timeoutSeconds = 3f)
         {
             QaTestLog.LogInput(

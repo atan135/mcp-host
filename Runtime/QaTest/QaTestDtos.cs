@@ -27,6 +27,7 @@ namespace QaTestFramework
         public string description;
         public string returnType;
         public bool isStatic;
+        public bool allowParallelExecution;
         public QaTestParameterDto[] parameters;
     }
 
@@ -48,6 +49,7 @@ namespace QaTestFramework
         public string requestId;
         public string methodId;
         public string methodName;
+        public bool allowParallelExecution;
         public string[] arguments;
     }
 

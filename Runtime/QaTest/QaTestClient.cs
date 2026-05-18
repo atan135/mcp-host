@@ -41,6 +41,7 @@ namespace QaTestFramework
         private readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
         private readonly SemaphoreSlim sendLock = new SemaphoreSlim(1, 1);
         private readonly object executionStateLock = new object();
+        private readonly Dictionary<string, ActiveExecution> activeExecutions = new Dictionary<string, ActiveExecution>();
 
         private CancellationTokenSource lifetimeCts;
         private ClientWebSocket webSocket;
@@ -651,7 +652,24 @@ namespace QaTestFramework
 
         private async Task TryExecuteAndReportAsync(QaTestServerCommand command)
         {
-            if (!TryBeginExecution(command))
+            bool allowParallelExecution = command != null && command.allowParallelExecution;
+            QaTestMethodEntry resolvedMethod = null;
+            Exception resolveException = null;
+
+            if (allowParallelExecution || !IsBusy)
+            {
+                try
+                {
+                    resolvedMethod = ResolveMethod(command);
+                    allowParallelExecution = allowParallelExecution || resolvedMethod.AllowParallelExecution;
+                }
+                catch (Exception exception)
+                {
+                    resolveException = exception;
+                }
+            }
+
+            if (!TryBeginExecution(command, allowParallelExecution))
             {
                 await SendBusyResultAsync(command);
                 return;
@@ -664,11 +682,11 @@ namespace QaTestFramework
 
             try
             {
-                await ExecuteAndReportAsync(command);
+                await ExecuteAndReportAsync(command, resolvedMethod, resolveException);
             }
             finally
             {
-                EndExecution();
+                EndExecution(command);
                 if (IsConnected)
                 {
                     _ = SendHeartbeatAsync();
@@ -676,27 +694,46 @@ namespace QaTestFramework
             }
         }
 
-        private bool TryBeginExecution(QaTestServerCommand command)
+        private bool TryBeginExecution(QaTestServerCommand command, bool allowParallelExecution)
         {
             lock (executionStateLock)
             {
-                if (!string.IsNullOrEmpty(currentRequestId))
+                string requestId = GetRequestStateId(command);
+                if (activeExecutions.ContainsKey(requestId))
                 {
                     return false;
                 }
 
-                currentRequestId = string.IsNullOrWhiteSpace(command.requestId) ? "(missing requestId)" : command.requestId;
-                currentMethodName = string.IsNullOrWhiteSpace(command.methodName) ? command.methodId ?? string.Empty : command.methodName;
+                if (!allowParallelExecution && activeExecutions.Count > 0)
+                {
+                    return false;
+                }
+
+                activeExecutions[requestId] = new ActiveExecution
+                {
+                    requestId = requestId,
+                    methodName = GetCommandMethodName(command),
+                };
+                RefreshCurrentExecutionStateLocked();
                 return true;
             }
         }
 
-        private void EndExecution()
+        private void EndExecution(QaTestServerCommand command)
+        {
+            EndExecution(GetRequestStateId(command));
+        }
+
+        private void EndExecution(string requestId)
         {
             lock (executionStateLock)
             {
-                currentRequestId = string.Empty;
-                currentMethodName = string.Empty;
+                if (!string.IsNullOrEmpty(requestId))
+                {
+                    activeExecutions.Remove(requestId);
+                }
+
+                RefreshCurrentExecutionStateLocked();
             }
         }
 
@@ -734,7 +771,7 @@ namespace QaTestFramework
             }
         }
 
-        private async Task ExecuteAndReportAsync(QaTestServerCommand command)
+        private async Task ExecuteAndReportAsync(QaTestServerCommand command, QaTestMethodEntry resolvedMethod, Exception resolveException)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             QaTestResultMessage resultMessage = new QaTestResultMessage
@@ -747,7 +784,12 @@ namespace QaTestFramework
 
             try
             {
-                QaTestMethodEntry method = ResolveMethod(command);
+                if (resolveException != null)
+                {
+                    throw resolveException;
+                }
+
+                QaTestMethodEntry method = resolvedMethod ?? ResolveMethod(command);
                 resultMessage.methodId = method.Id;
                 resultMessage.methodName = method.DisplayName;
                 object invocationResult = method.Invoke(command.arguments);
@@ -770,7 +812,7 @@ namespace QaTestFramework
             {
                 stopwatch.Stop();
                 resultMessage.durationMs = (int)stopwatch.ElapsedMilliseconds;
-                EndExecution();
+                EndExecution(command);
                 ApplyExecutionState(resultMessage);
                 try
                 {
@@ -1493,6 +1535,48 @@ namespace QaTestFramework
             return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
         }
 
+        private static string GetRequestStateId(QaTestServerCommand command)
+        {
+            return command != null && !string.IsNullOrWhiteSpace(command.requestId)
+                ? command.requestId
+                : "(missing requestId)";
+        }
+
+        private static string GetCommandMethodName(QaTestServerCommand command)
+        {
+            if (command == null)
+            {
+                return string.Empty;
+            }
+
+            return string.IsNullOrWhiteSpace(command.methodName)
+                ? command.methodId ?? string.Empty
+                : command.methodName;
+        }
+
+        private void RefreshCurrentExecutionStateLocked()
+        {
+            if (activeExecutions.Count == 0)
+            {
+                currentRequestId = string.Empty;
+                currentMethodName = string.Empty;
+                return;
+            }
+
+            if (activeExecutions.Count == 1)
+            {
+                foreach (ActiveExecution execution in activeExecutions.Values)
+                {
+                    currentRequestId = execution.requestId;
+                    currentMethodName = execution.methodName;
+                    return;
+                }
+            }
+
+            currentRequestId = string.Join(",", activeExecutions.Keys);
+            currentMethodName = activeExecutions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " active requests";
+        }
+
         private ExecutionState GetExecutionState()
         {
             lock (executionStateLock)
@@ -1554,6 +1638,12 @@ namespace QaTestFramework
         private struct ExecutionState
         {
             public bool busy;
+            public string requestId;
+            public string methodName;
+        }
+
+        private struct ActiveExecution
+        {
             public string requestId;
             public string methodName;
         }

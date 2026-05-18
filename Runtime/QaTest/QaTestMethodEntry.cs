@@ -23,6 +23,10 @@ namespace QaTestFramework
         public object Target { get; }
         public QaTestAttribute Attribute { get; }
         public ParameterInfo[] Parameters { get; }
+        public bool AllowParallelExecution
+        {
+            get { return Attribute != null && Attribute.AllowParallelExecution; }
+        }
 
         public bool IsTargetAvailable
         {
@@ -74,6 +78,7 @@ namespace QaTestFramework
                 description = Attribute.Description ?? string.Empty,
                 returnType = GetFriendlyTypeName(Method.ReturnType),
                 isStatic = Method.IsStatic,
+                allowParallelExecution = AllowParallelExecution,
                 parameters = parameterDtos,
             };
         }

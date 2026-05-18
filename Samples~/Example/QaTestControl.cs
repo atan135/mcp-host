@@ -24,7 +24,7 @@ namespace QaTestFramework.Example
             return result;
         }
 
-        [QaTest("检查控件是否可交互", "输出控件可交互检查的触发参数和模拟结果。")]
+        [QaTest("检查控件是否可交互", "输出控件可交互检查的触发参数和模拟结果。", true)]
         private static bool IsInteractable(string objectName)
         {
             QaTestLog.LogInput("QaTestControl", "检查控件是否可交互", "objectName=" + objectName);
@@ -33,7 +33,7 @@ namespace QaTestFramework.Example
             return result;
         }
 
-        [QaTest("等待控件可交互状态", "输出等待控件可交互状态的触发参数和模拟结果。")]
+        [QaTest("等待控件可交互状态", "输出等待控件可交互状态的触发参数和模拟结果。", true)]
         private static IEnumerator WaitInteractable(string objectName, bool expectedInteractable = true, float timeoutSeconds = 3f)
         {
             QaTestLog.LogInput(

@@ -6,7 +6,7 @@ namespace QaTestFramework.Example
 {
     public sealed class QaTestSample : MonoBehaviour
     {
-        [QaTest("实例连通性检查", "验证 MonoBehaviour 实例方法可以被注册。")]
+        [QaTest("实例连通性检查", "验证 MonoBehaviour 实例方法可以被注册。", true)]
         private string PingFromInstance()
         {
             QaTestLog.LogInput("QaTestSample", "实例连通性检查", "gameObject=" + gameObject.name);
@@ -15,7 +15,7 @@ namespace QaTestFramework.Example
             return result;
         }
 
-        [QaTest("连通性检查", "从 Unity 返回一个简单响应。")]
+        [QaTest("连通性检查", "从 Unity 返回一个简单响应。", true)]
         private static string Ping()
         {
             QaTestLog.LogInput("QaTestSample", "连通性检查", "无");
