@@ -89,4 +89,12 @@ namespace QaTestFramework
         public string message;
         public string error;
     }
+
+    [Serializable]
+    internal sealed class QaTestClientNameResult
+    {
+        public string clientId;
+        public string clientName;
+        public string configPath;
+    }
 }

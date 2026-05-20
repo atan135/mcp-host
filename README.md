@@ -136,13 +136,27 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 ## 客户端名称
 
-默认名称为：
+默认名称为 `clientId` 的前 8 位：
 
 ```text
-<Application.productName>/<SystemInfo.deviceName>
+3f0a9c12
 ```
 
-可以通过 `QaTestClient.SetClientName(newName, persist: true)` 设置自定义名称。自定义名称会保存到 PlayerPrefs，并在重新注册时同步到服务端。
+可以通过 `QaTestClient.SetClientName(newName, persist: true)` 或 `QaTestClientName.Set(newName, persist: true)` 设置自定义名称。自定义名称会写入 `qatest.config.txt`，并在重新注册时同步到服务端。也可以通过内置 QA 方法 `设置客户端名称` 远程修改；传空字符串会恢复为默认名称。
+
+## 客户端 ID
+
+`clientId` 和 `clientName` 会保存到本地 `qatest.config.txt`：
+
+- Editor 下保存到 Unity 项目根目录。
+- Player 下保存到 `Application.persistentDataPath`。
+
+首次启动时，如果配置文件不存在或没有有效 `clientId`，客户端会按当前平台生成种子并追加随机值，再计算 SHA-256 hash，并截取为 32 位小写 hex：
+
+- Editor: 使用 Unity 项目根目录。
+- Player: 使用 `Application.identifier`、`Application.platform` 和本地持久化数据目录。
+
+生成后会把 `clientId` 和默认 `clientName` 写入 `qatest.config.txt`。后续启动复用该文件中的值；旧的 64 位 `clientId` 会在读取后规范为前 32 位并回写。删除配置文件才会重新生成新的客户端身份。
 
 ## 执行链路
 

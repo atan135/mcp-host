@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +19,10 @@ namespace QaTestFramework
 {
     public sealed class QaTestClient : MonoBehaviour, IQaTestClientName
     {
-        private const string ClientIdKey = "QaTest.ClientId";
+        private const string ClientConfigFileName = "qatest.config.txt";
+        private const string ClientIdConfigKey = "clientId";
+        private const string ClientNameConfigKey = "clientName";
+        private const int ClientIdLength = 32;
         private const string ServerUrlKey = "QaTest.ServerUrl";
         private const string ClientNameKey = "QaTest.ClientName";
         public const string EnabledPlayerPrefsKey = "QaTest.Enabled";
@@ -300,7 +304,7 @@ namespace QaTestFramework
 
         private void Reset()
         {
-            AssignDefaultClientNameIfEmpty();
+            clientName = NormalizeClientName(clientName);
         }
 
         private void Awake()
@@ -315,9 +319,12 @@ namespace QaTestFramework
             Instance = this;
             DontDestroyOnLoad(gameObject);
             RefreshEnabledState();
-            clientId = LoadOrCreateClientId();
-            clientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, clientName));
+            string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, clientName));
+            QaTestClientConfig clientConfig = LoadOrCreateClientConfig(legacyClientName);
+            clientId = clientConfig.ClientId;
+            clientName = NormalizeClientName(clientConfig.ClientName);
             AssignDefaultClientNameIfEmpty();
+            WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
             RefreshLocalIpAddresses();
 
             if (!qaEnabled)
@@ -398,12 +405,28 @@ namespace QaTestFramework
                 }
 
                 PlayerPrefs.Save();
+                if (IsValidClientId(clientId))
+                {
+                    WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
+                }
             }
 
             if (resendRegister)
             {
                 RefreshRegistration();
             }
+        }
+
+        [QaTest("设置客户端名称", "设置并保存当前 QA 客户端名称，传空字符串会恢复为默认名称。")]
+        public string SetQaClientName([QaParam("新的客户端名称，传空字符串恢复默认名称。")] string newClientName)
+        {
+            SetClientName(newClientName, true, true);
+            return JsonUtility.ToJson(new QaTestClientNameResult
+            {
+                clientId = clientId,
+                clientName = ResolveClientName(),
+                configPath = GetClientConfigPath(),
+            });
         }
 
         public void ClearClientName(bool persist = false, bool resendRegister = true)
@@ -1277,23 +1300,22 @@ namespace QaTestFramework
             }
         }
 
-        private static string GetDefaultClientName()
+        private string GetDefaultClientName()
         {
-            string projectName = GetUnityProjectName();
-            string machineName = GetMachineName();
-            if (!string.IsNullOrWhiteSpace(projectName) && !string.IsNullOrWhiteSpace(machineName))
+            return GetDefaultClientName(clientId);
+        }
+
+        private static string GetDefaultClientName(string sourceClientId)
+        {
+            string normalizedClientId = NormalizeClientName(sourceClientId);
+            if (normalizedClientId.Length >= 8)
             {
-                return projectName + "/" + machineName;
+                return normalizedClientId.Substring(0, 8);
             }
 
-            if (!string.IsNullOrWhiteSpace(projectName))
+            if (!string.IsNullOrWhiteSpace(normalizedClientId))
             {
-                return projectName;
-            }
-
-            if (!string.IsNullOrWhiteSpace(machineName))
-            {
-                return machineName;
+                return normalizedClientId;
             }
 
             return "QaTestClient";
@@ -1332,7 +1354,8 @@ namespace QaTestFramework
             string projectName = GetUnityProjectName();
 
             return !string.IsNullOrWhiteSpace(normalized)
-                && (normalized.Equals(NormalizeClientName(SystemInfo.deviceName), StringComparison.Ordinal)
+                && (normalized.Equals("QaTestClient", StringComparison.Ordinal)
+                    || normalized.Equals(NormalizeClientName(SystemInfo.deviceName), StringComparison.Ordinal)
                     || normalized.Equals(NormalizeClientName(Environment.MachineName), StringComparison.Ordinal)
                     || (!string.IsNullOrWhiteSpace(projectName)
                         && normalized.StartsWith(projectName + " / ", StringComparison.Ordinal)));
@@ -1516,23 +1539,200 @@ namespace QaTestFramework
             return false;
         }
 
-        private static string LoadOrCreateClientId()
+        private static QaTestClientConfig LoadOrCreateClientConfig(string fallbackClientName)
         {
-            string savedClientId = PlayerPrefs.GetString(ClientIdKey, string.Empty);
-            if (!string.IsNullOrWhiteSpace(savedClientId))
+            string configPath = GetClientConfigPath();
+            QaTestClientConfig config = ReadClientConfig(configPath);
+            if (!IsValidClientId(config.ClientId))
             {
-                return savedClientId;
+                config.ClientId = GenerateClientId();
             }
 
-            savedClientId = Guid.NewGuid().ToString("N");
-            PlayerPrefs.SetString(ClientIdKey, savedClientId);
-            PlayerPrefs.Save();
-            return savedClientId;
+            if (string.IsNullOrWhiteSpace(config.ClientName))
+            {
+                config.ClientName = NormalizeClientName(fallbackClientName);
+            }
+
+            return config;
+        }
+
+        private static QaTestClientConfig ReadClientConfig(string configPath)
+        {
+            QaTestClientConfig config = new QaTestClientConfig();
+            try
+            {
+                if (!File.Exists(configPath))
+                {
+                    return config;
+                }
+
+                string[] lines = File.ReadAllLines(configPath, Encoding.UTF8);
+                foreach (string line in lines)
+                {
+                    string trimmed = line != null ? line.Trim() : string.Empty;
+                    if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    int separatorIndex = trimmed.IndexOf('=');
+                    string value = separatorIndex >= 0 ? trimmed.Substring(separatorIndex + 1).Trim() : trimmed;
+                    string key = separatorIndex >= 0 ? trimmed.Substring(0, separatorIndex).Trim() : ClientIdConfigKey;
+                    if (key.Equals(ClientIdConfigKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        config.ClientId = NormalizeClientId(value);
+                        continue;
+                    }
+
+                    if (key.Equals(ClientNameConfigKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        config.ClientName = NormalizeClientName(value);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[QaTest] Failed to read client config: " + exception.Message);
+            }
+
+            return config;
+        }
+
+        private static void WriteClientConfig(string configPath, string configClientId, string configClientName)
+        {
+            try
+            {
+                string directory = Path.GetDirectoryName(configPath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                File.WriteAllText(
+                    configPath,
+                    ClientIdConfigKey + "=" + NormalizeClientId(configClientId) + Environment.NewLine +
+                    ClientNameConfigKey + "=" + NormalizeClientName(configClientName) + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[QaTest] Failed to write client config: " + exception.Message);
+            }
+        }
+
+        private static string GetClientConfigPath()
+        {
+            return Path.Combine(GetClientConfigDirectory(), ClientConfigFileName);
+        }
+
+        private static string GetClientConfigDirectory()
+        {
+            try
+            {
+                if (Application.isEditor)
+                {
+                    string dataPath = Application.dataPath;
+                    if (!string.IsNullOrWhiteSpace(dataPath))
+                    {
+                        DirectoryInfo projectDirectory = Directory.GetParent(dataPath);
+                        if (projectDirectory != null && !string.IsNullOrWhiteSpace(projectDirectory.FullName))
+                        {
+                            return projectDirectory.FullName;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(Application.persistentDataPath))
+                {
+                    return Application.persistentDataPath;
+                }
+
+                if (!string.IsNullOrWhiteSpace(Application.dataPath))
+                {
+                    DirectoryInfo dataParent = Directory.GetParent(Application.dataPath);
+                    return dataParent != null ? dataParent.FullName : Application.dataPath;
+                }
+            }
+            catch
+            {
+            }
+
+            return Environment.CurrentDirectory;
+        }
+
+        private static string GenerateClientId()
+        {
+            string source = BuildClientIdSeed(Guid.NewGuid().ToString("N"));
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(source));
+                StringBuilder builder = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++)
+                {
+                    builder.Append(hash[i].ToString("x2"));
+                }
+
+                return NormalizeClientId(builder.ToString());
+            }
+        }
+
+        private static string BuildClientIdSeed(string randomValue)
+        {
+            if (Application.isEditor)
+            {
+                return "editor:" + NormalizeConfigPath(GetClientConfigDirectory()) + ":" + randomValue;
+            }
+
+            return "player:" +
+                NormalizeClientName(Application.identifier) + ":" +
+                Application.platform + ":" +
+                randomValue;
+        }
+
+        private static string NormalizeConfigPath(string path)
+        {
+            return string.IsNullOrWhiteSpace(path)
+                ? string.Empty
+                : Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToLowerInvariant();
+        }
+
+        private static bool IsValidClientId(string value)
+        {
+            string normalized = NormalizeClientId(value);
+            if (normalized.Length != ClientIdLength)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < normalized.Length; i++)
+            {
+                char character = normalized[i];
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private sealed class QaTestClientConfig
+        {
+            public string ClientId = string.Empty;
+            public string ClientName = string.Empty;
         }
 
         private static string NormalizeClientName(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+
+        private static string NormalizeClientId(string value)
+        {
+            string normalized = NormalizeClientName(value).Replace("-", string.Empty).ToLowerInvariant();
+            return normalized.Length > ClientIdLength
+                ? normalized.Substring(0, ClientIdLength)
+                : normalized;
         }
 
         private static string GetRequestStateId(QaTestServerCommand command)

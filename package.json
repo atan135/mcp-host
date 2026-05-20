@@ -21,7 +21,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/atan135/mcp-host.git"
+    "url": "https://192.168.9.98:8010/game_automation/mcp-host.git"
   },
   "author": {
     "name": "QA Test Framework"
