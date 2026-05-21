@@ -23,8 +23,14 @@ namespace QaTestFramework
         private const string ClientIdConfigKey = "clientId";
         private const string ClientNameConfigKey = "clientName";
         private const int ClientIdLength = 32;
-        private const string ServerUrlKey = "QaTest.ServerUrl";
+        private const string ServerIPKey = "QaTest.ServerIP";
+        private const string ServerPortKey = "QaTest.ServerPort";
         private const string ClientNameKey = "QaTest.ClientName";
+        private const string DefaultServerIP = "localhost";
+        private const int DefaultServerPort = 3000;
+        private const string ServerScheme = "ws";
+        private const string ServerPath = "/ws";
+        private const string ServerRole = "unity";
         public const string EnabledPlayerPrefsKey = "QaTest.Enabled";
         public const string EnabledEnvironmentVariable = "QA_TEST_ENABLED";
         private const string EnabledKey = EnabledPlayerPrefsKey;
@@ -35,7 +41,8 @@ namespace QaTestFramework
 
         [SerializeField] private bool enableInEditor = true;
         [SerializeField] private bool enableInPlayer = false;
-        [SerializeField] private string serverUrl = "ws://localhost:3000/ws?role=unity";
+        [SerializeField, InspectorName("ServerIP")] private string serverIP = DefaultServerIP;
+        [SerializeField, InspectorName("ServerPort")] private int serverPort = DefaultServerPort;
         [SerializeField] private string clientName = "";
         [SerializeField] private float reconnectDelaySeconds = 2f;
         [SerializeField] private float heartbeatSeconds = 10f;
@@ -304,7 +311,15 @@ namespace QaTestFramework
 
         private void Reset()
         {
+            serverIP = NormalizeServerIP(serverIP);
+            serverPort = NormalizeServerPort(serverPort);
             clientName = NormalizeClientName(clientName);
+        }
+
+        private void OnValidate()
+        {
+            serverIP = NormalizeServerIP(serverIP);
+            serverPort = NormalizeServerPort(serverPort);
         }
 
         private void Awake()
@@ -1220,17 +1235,77 @@ namespace QaTestFramework
         private string BuildServerUrl()
         {
             string resolvedUrl = GetCommandLineServerUrl();
-            if (string.IsNullOrWhiteSpace(resolvedUrl))
+            if (!string.IsNullOrWhiteSpace(resolvedUrl))
             {
-                resolvedUrl = PlayerPrefs.GetString(ServerUrlKey, serverUrl);
+                return EnsureUnityRole(resolvedUrl);
             }
 
-            if (resolvedUrl.IndexOf("role=", StringComparison.OrdinalIgnoreCase) >= 0)
+            string resolvedIP = PlayerPrefs.GetString(ServerIPKey, serverIP);
+            int resolvedPort = PlayerPrefs.HasKey(ServerPortKey) ? PlayerPrefs.GetInt(ServerPortKey, serverPort) : serverPort;
+            return BuildConfiguredServerUrl(resolvedIP, resolvedPort);
+        }
+
+        private static string BuildConfiguredServerUrl(string ip, int port)
+        {
+            string normalizedIP = NormalizeServerIP(ip);
+            int normalizedPort = NormalizeServerPort(port);
+            return ServerScheme + "://" + FormatHostForUrl(normalizedIP) + ":" + normalizedPort + ServerPath + "?role=" + ServerRole;
+        }
+
+        private static string NormalizeServerIP(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? DefaultServerIP : value.Trim();
+        }
+
+        private static int NormalizeServerPort(int value)
+        {
+            return Mathf.Clamp(value, 1, 65535);
+        }
+
+        private static string FormatHostForUrl(string host)
+        {
+            if (host.IndexOf(':') >= 0 && !host.StartsWith("[", StringComparison.Ordinal) && !host.EndsWith("]", StringComparison.Ordinal))
             {
-                return resolvedUrl;
+                return "[" + host + "]";
             }
 
-            return resolvedUrl.Contains("?") ? resolvedUrl + "&role=unity" : resolvedUrl + "?role=unity";
+            return host;
+        }
+
+        private static string EnsureUnityRole(string url)
+        {
+            string normalizedUrl = url.Trim();
+            int fragmentIndex = normalizedUrl.IndexOf('#');
+            string fragment = fragmentIndex >= 0 ? normalizedUrl.Substring(fragmentIndex) : string.Empty;
+            string urlWithoutFragment = fragmentIndex >= 0 ? normalizedUrl.Substring(0, fragmentIndex) : normalizedUrl;
+            int queryIndex = urlWithoutFragment.IndexOf('?');
+            if (queryIndex < 0)
+            {
+                return urlWithoutFragment + "?role=" + ServerRole + fragment;
+            }
+
+            string baseUrl = urlWithoutFragment.Substring(0, queryIndex);
+            string query = urlWithoutFragment.Substring(queryIndex + 1);
+            string[] parameters = query.Split('&');
+            List<string> normalizedParameters = new List<string>();
+            foreach (string parameter in parameters)
+            {
+                if (string.IsNullOrEmpty(parameter))
+                {
+                    continue;
+                }
+
+                string key = parameter.Split(new[] { '=' }, 2)[0];
+                if (key.Equals("role", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                normalizedParameters.Add(parameter);
+            }
+
+            normalizedParameters.Add("role=" + ServerRole);
+            return baseUrl + "?" + string.Join("&", normalizedParameters.ToArray()) + fragment;
         }
 
         private void ApplyClientEnabled(bool isEnabled, bool persist)

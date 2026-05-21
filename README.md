@@ -35,7 +35,7 @@ ws://localhost:3000/ws?role=unity
 Unity.exe -projectPath <projectPath> --qa-server-url ws://localhost:3000/ws?role=unity
 ```
 
-也可以在场景中预置 `QaTestClient` 组件，并通过 Inspector 配置 `serverUrl` 序列化字段。客户端会自动补齐 `role=unity` 参数。
+也可以在场景中预置 `QaTestClient` 组件，并通过 Inspector 配置 `serverIP` 和 `serverPort`。客户端固定使用 `role=unity`。
 
 ## 启用开关
 

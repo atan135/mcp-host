@@ -17,7 +17,8 @@ namespace QaTestFramework
                 return;
             }
 
-            QaTestClient.CreateClientObject();
+            // Temporarily disabled: do not auto-create QaTestClient during startup.
+            // QaTestClient.CreateClientObject();
         }
     }
 }
