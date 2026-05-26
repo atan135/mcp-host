@@ -162,7 +162,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 1. 启动 QA register server。
 2. Unity 进入 Play Mode 或 Player 启动，QA 功能启用时 `QaTestClient` 连接 `ws://localhost:3000/ws?role=unity`。
-3. 客户端发送 `register` 消息，包含 `clientId`、名称、IP 地址、平台、Unity 版本、方法列表和本地 busy 状态。
+3. 客户端发送 `register` 消息，包含 `clientId`、名称、IP 地址、平台、Unity 版本、机器名、操作系统名、方法列表和本地 busy 状态。
 4. Web 控制台或 MCP 工具发送 `execute` 命令。
 5. Unity 主线程执行目标 `[QaTest]` 方法，并回传 `qa_result`。
 6. 如果 Unity 本地已有请求在执行，新收到的 `execute` 会立即返回失败结果，不会并发执行第二个测试方法。

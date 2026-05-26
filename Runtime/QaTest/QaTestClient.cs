@@ -1202,6 +1202,8 @@ namespace QaTestFramework
                 ipAddresses = localIpAddresses,
                 platform = Application.platform.ToString(),
                 unityVersion = Application.unityVersion,
+                deviceName = GetMachineName(),
+                operatingSystem = GetOperatingSystemName(),
                 methods = registry.ToDtos(),
             };
             ApplyExecutionState(registerMessage);
@@ -1516,8 +1518,54 @@ namespace QaTestFramework
         private static string GetMachineName()
         {
             return FirstNonEmpty(
+                GetAndroidDeviceName(),
                 NormalizeClientName(SystemInfo.deviceName),
                 NormalizeClientName(Environment.MachineName));
+        }
+
+        private static string GetOperatingSystemName()
+        {
+            return NormalizeClientName(SystemInfo.operatingSystem);
+        }
+
+        private static string GetAndroidDeviceName()
+        {
+            if (Application.platform != RuntimePlatform.Android)
+            {
+                return string.Empty;
+            }
+
+            string deviceName = ReadAndroidSettingsValue("android.provider.Settings$Global", "device_name");
+            if (!string.IsNullOrWhiteSpace(deviceName))
+            {
+                return deviceName;
+            }
+
+            string bluetoothName = ReadAndroidSettingsValue("android.provider.Settings$Secure", "bluetooth_name");
+            if (!string.IsNullOrWhiteSpace(bluetoothName))
+            {
+                return bluetoothName;
+            }
+
+            return NormalizeClientName(SystemInfo.deviceModel);
+        }
+
+        private static string ReadAndroidSettingsValue(string settingsClassName, string key)
+        {
+            try
+            {
+                using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+                using (AndroidJavaObject contentResolver = currentActivity.Call<AndroidJavaObject>("getContentResolver"))
+                using (AndroidJavaClass settingsClass = new AndroidJavaClass(settingsClassName))
+                {
+                    return NormalizeClientName(settingsClass.CallStatic<string>("getString", contentResolver, key));
+                }
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private void RefreshLocalIpAddresses()

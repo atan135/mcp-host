@@ -12,6 +12,8 @@ namespace QaTestFramework
         public string[] ipAddresses;
         public string platform;
         public string unityVersion;
+        public string deviceName;
+        public string operatingSystem;
         public bool busy;
         public string currentRequestId;
         public string currentMethodName;
