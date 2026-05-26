@@ -49,6 +49,9 @@ namespace QaTestFramework
         public bool fatal;
         public string code;
         public string error;
+        public string clientId;
+        public string clientName;
+        public string existingClientId;
         public string requestId;
         public string methodId;
         public string methodName;

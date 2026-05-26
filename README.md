@@ -156,7 +156,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 - Editor: 使用 Unity 项目根目录。
 - Player: 使用 `Application.identifier`、`Application.platform` 和本地持久化数据目录。
 
-生成后会把 `clientId` 和默认 `clientName` 写入 `qatest.config.txt`。后续启动复用该文件中的值；旧的 64 位 `clientId` 会在读取后规范为前 32 位并回写。删除配置文件才会重新生成新的客户端身份。
+生成后会把 `clientId` 和默认 `clientName` 写入 `qatest.config.txt`。后续启动会复用 `clientId`；`clientName` 的优先级为 Inspector 非空值 > `qatest.config.txt` > PlayerPrefs 兼容值/默认名称，Inspector 非空值会回写配置文件。旧的 64 位 `clientId` 会在读取后规范为前 32 位并回写。删除配置文件才会重新生成新的客户端身份。
 
 ## 执行链路
 

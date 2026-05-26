@@ -322,6 +322,7 @@ namespace QaTestFramework
         {
             serverIP = NormalizeServerIP(serverIP);
             serverPort = NormalizeServerPort(serverPort);
+            clientName = NormalizeClientName(clientName);
         }
 
         private void Awake()
@@ -336,8 +337,9 @@ namespace QaTestFramework
             Instance = this;
             DontDestroyOnLoad(gameObject);
             RefreshEnabledState();
-            string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, clientName));
-            QaTestClientConfig clientConfig = LoadOrCreateClientConfig(legacyClientName);
+            string inspectorClientName = NormalizeClientName(clientName);
+            string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, inspectorClientName));
+            QaTestClientConfig clientConfig = LoadOrCreateClientConfig(inspectorClientName, legacyClientName);
             clientId = clientConfig.ClientId;
             clientName = NormalizeClientName(clientConfig.ClientName);
             AssignDefaultClientNameIfEmpty();
@@ -706,7 +708,13 @@ namespace QaTestFramework
                 ? command.error
                 : "Server returned an error.";
             string errorCode = command != null ? command.code ?? string.Empty : string.Empty;
-            lastError = string.IsNullOrWhiteSpace(errorCode) ? errorMessage : errorCode + ": " + errorMessage;
+            bool isDuplicateClientNameError = errorCode.Equals(DuplicateClientNameErrorCode, StringComparison.OrdinalIgnoreCase);
+            if (isDuplicateClientNameError)
+            {
+                errorMessage = FormatDuplicateClientNameError(command, errorMessage);
+            }
+
+            lastError = isDuplicateClientNameError || string.IsNullOrWhiteSpace(errorCode) ? errorMessage : errorCode + ": " + errorMessage;
             Debug.LogError("[QaTest] " + lastError);
 
             if (command == null || !command.fatal)
@@ -719,12 +727,30 @@ namespace QaTestFramework
             lifetimeCts?.Cancel();
             _ = CloseSocketAsync();
 
-            if (errorCode.Equals(DuplicateClientNameErrorCode, StringComparison.OrdinalIgnoreCase))
+            if (isDuplicateClientNameError)
             {
-                Debug.LogError("[QaTest] Duplicate client name rejected by register server. QA client will stop without reconnecting.");
+                Debug.LogError("[QaTest] 客户端名称重复，QA 客户端将停止连接并不再重连。");
             }
 
             mainThreadActions.Enqueue(StopUnityStartup);
+        }
+
+        private string FormatDuplicateClientNameError(QaTestServerCommand command, string fallbackMessage)
+        {
+            string duplicateName = command != null ? NormalizeClientName(command.clientName) : string.Empty;
+            if (string.IsNullOrWhiteSpace(duplicateName))
+            {
+                duplicateName = ResolveClientName();
+            }
+
+            if (!string.IsNullOrWhiteSpace(duplicateName))
+            {
+                return "QaTest 客户端名称“" + duplicateName + "”已存在，当前连接已被拒绝。请修改 QaTestClient 的 clientName 后重试。";
+            }
+
+            return !string.IsNullOrWhiteSpace(fallbackMessage)
+                ? fallbackMessage
+                : "QaTest 客户端名称已存在，当前连接已被拒绝。请修改 QaTestClient 的 clientName 后重试。";
         }
 
         private void StopUnityStartup()
@@ -1665,7 +1691,7 @@ namespace QaTestFramework
             return false;
         }
 
-        private static QaTestClientConfig LoadOrCreateClientConfig(string fallbackClientName)
+        private static QaTestClientConfig LoadOrCreateClientConfig(string inspectorClientName, string fallbackClientName)
         {
             string configPath = GetClientConfigPath();
             QaTestClientConfig config = ReadClientConfig(configPath);
@@ -1674,7 +1700,12 @@ namespace QaTestFramework
                 config.ClientId = GenerateClientId();
             }
 
-            if (string.IsNullOrWhiteSpace(config.ClientName))
+            string normalizedInspectorClientName = NormalizeClientName(inspectorClientName);
+            if (!string.IsNullOrWhiteSpace(normalizedInspectorClientName))
+            {
+                config.ClientName = normalizedInspectorClientName;
+            }
+            else if (string.IsNullOrWhiteSpace(config.ClientName))
             {
                 config.ClientName = NormalizeClientName(fallbackClientName);
             }
