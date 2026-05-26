@@ -46,6 +46,9 @@ namespace QaTestFramework
     internal sealed class QaTestServerCommand
     {
         public string type;
+        public bool fatal;
+        public string code;
+        public string error;
         public string requestId;
         public string methodId;
         public string methodName;

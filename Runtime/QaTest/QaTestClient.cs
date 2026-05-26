@@ -31,6 +31,7 @@ namespace QaTestFramework
         private const string ServerScheme = "ws";
         private const string ServerPath = "/ws";
         private const string ServerRole = "unity";
+        private const string DuplicateClientNameErrorCode = "duplicate_client_name";
         public const string EnabledPlayerPrefsKey = "QaTest.Enabled";
         public const string EnabledEnvironmentVariable = "QA_TEST_ENABLED";
         private const string EnabledKey = EnabledPlayerPrefsKey;
@@ -76,6 +77,7 @@ namespace QaTestFramework
         private DateTime lastCommandReceivedAtUtc;
         private DateTime lastResultSentAtUtc;
         private bool qaEnabled;
+        private bool fatalConnectionError;
         private bool hasRuntimeEnabledOverride;
         private bool runtimeEnabledOverride;
         private string runtimeEnabledSource = "Runtime";
@@ -559,6 +561,11 @@ namespace QaTestFramework
                     Debug.LogWarning("[QaTest] WebSocket connection failed: " + exception.Message);
                 }
 
+                if (fatalConnectionError)
+                {
+                    break;
+                }
+
                 if (!token.IsCancellationRequested)
                 {
                     connectionState = "Reconnecting";
@@ -582,6 +589,7 @@ namespace QaTestFramework
         {
             await CloseSocketAsync();
 
+            fatalConnectionError = false;
             webSocket = new ClientWebSocket();
             resolvedServerUrl = BuildServerUrl();
             Uri uri = new Uri(resolvedServerUrl);
@@ -677,6 +685,10 @@ namespace QaTestFramework
                 heartbeatAckCount++;
                 lastHeartbeatAckAtUtc = DateTime.UtcNow;
             }
+            else if (lastServerMessageType == "error")
+            {
+                HandleServerError(command);
+            }
 
             if (command == null || command.type != "execute")
             {
@@ -686,6 +698,45 @@ namespace QaTestFramework
             commandsReceivedCount++;
             lastCommandReceivedAtUtc = DateTime.UtcNow;
             mainThreadActions.Enqueue(() => { _ = TryExecuteAndReportAsync(command); });
+        }
+
+        private void HandleServerError(QaTestServerCommand command)
+        {
+            string errorMessage = command != null && !string.IsNullOrWhiteSpace(command.error)
+                ? command.error
+                : "Server returned an error.";
+            string errorCode = command != null ? command.code ?? string.Empty : string.Empty;
+            lastError = string.IsNullOrWhiteSpace(errorCode) ? errorMessage : errorCode + ": " + errorMessage;
+            Debug.LogError("[QaTest] " + lastError);
+
+            if (command == null || !command.fatal)
+            {
+                return;
+            }
+
+            fatalConnectionError = true;
+            connectionState = "FatalError";
+            lifetimeCts?.Cancel();
+            _ = CloseSocketAsync();
+
+            if (errorCode.Equals(DuplicateClientNameErrorCode, StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.LogError("[QaTest] Duplicate client name rejected by register server. QA client will stop without reconnecting.");
+            }
+
+            mainThreadActions.Enqueue(StopUnityStartup);
+        }
+
+        private void StopUnityStartup()
+        {
+#if UNITY_EDITOR
+            if (UnityEditor.EditorApplication.isPlaying)
+            {
+                UnityEditor.EditorApplication.isPlaying = false;
+            }
+#else
+            Application.Quit(1);
+#endif
         }
 
         private async Task TryExecuteAndReportAsync(QaTestServerCommand command)
