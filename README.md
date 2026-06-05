@@ -144,9 +144,11 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 
 可以通过 `QaTestClient.SetClientName(newName, persist: true)` 或 `QaTestClientName.Set(newName, persist: true)` 设置自定义名称。自定义名称会写入 `qatest.config.txt`，并在重新注册时同步到服务端。也可以通过内置 QA 方法 `设置客户端名称` 远程修改；传空字符串会恢复为默认名称。
 
+Editor 下如果用户完全不修改 `clientName`，并且 Unity 项目根目录没有 `qatest.config.txt`，客户端会继续使用由 `clientId` 推导出的默认名称，不会自动创建本地名称配置。通过 Inspector 修改 `clientName` 后，会立即创建或更新 `qatest.config.txt`；后续本项目内任意场景或任意位置启用的 `QaTestClient` 都会读取该文件中的名称，并同步显示到 Inspector。
+
 ## 客户端 ID
 
-`clientId` 和 `clientName` 会保存到本地 `qatest.config.txt`：
+用户修改后的 `clientId` 和 `clientName` 会保存到本地 `qatest.config.txt`：
 
 - Editor 下保存到 Unity 项目根目录。
 - Player 下保存到 `Application.persistentDataPath`。
@@ -156,7 +158,7 @@ private static System.Collections.IEnumerator WaitAndReturn(float seconds = 1f)
 - Editor: 使用 Unity 项目根目录。
 - Player: 使用 `Application.identifier`、`Application.platform` 和本地持久化数据目录。
 
-生成后会把 `clientId` 和默认 `clientName` 写入 `qatest.config.txt`。后续启动会复用 `clientId`；`clientName` 的优先级为 Inspector 非空值 > `qatest.config.txt` > PlayerPrefs 兼容值/默认名称，Inspector 非空值会回写配置文件。旧的 64 位 `clientId` 会在读取后规范为前 32 位并回写。删除配置文件才会重新生成新的客户端身份。
+Editor 下如果 `qatest.config.txt` 不存在，客户端会在本次运行中生成 `clientId` 并用其前 8 位作为默认名称，但不会把默认名称写入本地文件。只要 `qatest.config.txt` 存在，启动时就会读取其中的 `clientName` 并更新到 Inspector；Inspector 修改会立即回写配置文件。Player 下仍按 Inspector 非空值 > `qatest.config.txt` > PlayerPrefs 兼容值/默认名称解析。旧的 64 位 `clientId` 会在读取后规范为前 32 位并回写。删除配置文件会回到默认名称推导机制。
 
 ## 执行链路
 

@@ -14,15 +14,29 @@ namespace QaTestFramework.Editor
         private void OnEnable()
         {
             runtimeDiagnosticsExpanded = SessionState.GetBool(RuntimeDiagnosticsFoldoutKey, true);
+            QaTestClient client = (QaTestClient)target;
+            if (!Application.isPlaying && client.ApplyLocalClientNameConfig(false))
+            {
+                EditorUtility.SetDirty(client);
+            }
         }
 
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
+            SerializedProperty clientNameProperty = serializedObject.FindProperty("clientName");
+            string previousClientName = clientNameProperty != null ? clientNameProperty.stringValue : string.Empty;
+
             DrawDefaultInspector();
             serializedObject.ApplyModifiedProperties();
 
             QaTestClient client = (QaTestClient)target;
+            string currentClientName = clientNameProperty != null ? clientNameProperty.stringValue : string.Empty;
+            if (!previousClientName.Equals(currentClientName, StringComparison.Ordinal))
+            {
+                client.SetClientName(currentClientName, true, Application.isPlaying);
+            }
+
             EditorGUILayout.Space(8f);
             DrawRuntimeStatus(client, ref runtimeDiagnosticsExpanded);
             SessionState.SetBool(RuntimeDiagnosticsFoldoutKey, runtimeDiagnosticsExpanded);

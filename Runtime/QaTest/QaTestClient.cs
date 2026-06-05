@@ -340,10 +340,14 @@ namespace QaTestFramework
             string inspectorClientName = NormalizeClientName(clientName);
             string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, inspectorClientName));
             QaTestClientConfig clientConfig = LoadOrCreateClientConfig(inspectorClientName, legacyClientName);
+            bool shouldWriteClientConfig = !Application.isEditor || clientConfig.Exists;
             clientId = clientConfig.ClientId;
             clientName = NormalizeClientName(clientConfig.ClientName);
             AssignDefaultClientNameIfEmpty();
-            WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
+            if (shouldWriteClientConfig)
+            {
+                WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
+            }
             RefreshLocalIpAddresses();
 
             if (!qaEnabled)
@@ -414,26 +418,41 @@ namespace QaTestFramework
 
             if (persist)
             {
-                if (string.IsNullOrWhiteSpace(clientName))
-                {
-                    PlayerPrefs.DeleteKey(ClientNameKey);
-                }
-                else
-                {
-                    PlayerPrefs.SetString(ClientNameKey, clientName);
-                }
-
-                PlayerPrefs.Save();
-                if (IsValidClientId(clientId))
-                {
-                    WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
-                }
+                PersistClientName(clientName);
             }
 
             if (resendRegister)
             {
                 RefreshRegistration();
             }
+        }
+
+        public bool ApplyLocalClientNameConfig(bool resendRegister = false)
+        {
+            QaTestClientConfig config = ReadClientConfig(GetClientConfigPath());
+            if (!config.Exists)
+            {
+                return false;
+            }
+
+            if (IsValidClientId(config.ClientId))
+            {
+                clientId = config.ClientId;
+            }
+            else if (!IsValidClientId(clientId))
+            {
+                clientId = GenerateClientId();
+            }
+
+            clientName = NormalizeClientName(config.ClientName);
+            AssignDefaultClientNameIfEmpty();
+
+            if (resendRegister)
+            {
+                RefreshRegistration();
+            }
+
+            return true;
         }
 
         [QaTest("设置客户端名称", "设置并保存当前 QA 客户端名称，传空字符串会恢复为默认名称。")]
@@ -1445,6 +1464,39 @@ namespace QaTestFramework
             return GetDefaultClientName();
         }
 
+        private void PersistClientName(string normalizedClientName)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedClientName))
+            {
+                PlayerPrefs.DeleteKey(ClientNameKey);
+            }
+            else
+            {
+                PlayerPrefs.SetString(ClientNameKey, normalizedClientName);
+            }
+
+            PlayerPrefs.Save();
+
+            string configPath = GetClientConfigPath();
+            string persistedClientId = IsValidClientId(clientId)
+                ? clientId
+                : ReadClientConfig(configPath).ClientId;
+            if (!IsValidClientId(persistedClientId))
+            {
+                persistedClientId = GenerateClientId();
+            }
+
+            if (!IsValidClientId(clientId))
+            {
+                clientId = persistedClientId;
+            }
+
+            string persistedClientName = string.IsNullOrWhiteSpace(normalizedClientName)
+                ? GetDefaultClientName(persistedClientId)
+                : normalizedClientName;
+            WriteClientConfig(configPath, persistedClientId, persistedClientName);
+        }
+
         private void AssignDefaultClientNameIfEmpty()
         {
             clientName = NormalizeClientName(clientName);
@@ -1748,6 +1800,11 @@ namespace QaTestFramework
                 config.ClientId = GenerateClientId();
             }
 
+            if (Application.isEditor)
+            {
+                return config;
+            }
+
             string normalizedInspectorClientName = NormalizeClientName(inspectorClientName);
             if (!string.IsNullOrWhiteSpace(normalizedInspectorClientName))
             {
@@ -1771,6 +1828,7 @@ namespace QaTestFramework
                     return config;
                 }
 
+                config.Exists = true;
                 string[] lines = File.ReadAllLines(configPath, Encoding.UTF8);
                 foreach (string line in lines)
                 {
@@ -1923,6 +1981,7 @@ namespace QaTestFramework
 
         private sealed class QaTestClientConfig
         {
+            public bool Exists;
             public string ClientId = string.Empty;
             public string ClientName = string.Empty;
         }
