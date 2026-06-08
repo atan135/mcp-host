@@ -104,5 +104,6 @@ namespace QaTestFramework
         public string clientId;
         public string clientName;
         public string configPath;
+        public string storage;
     }
 }

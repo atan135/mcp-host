@@ -23,9 +23,16 @@ namespace QaTestFramework
         private const string ClientIdConfigKey = "clientId";
         private const string ClientNameConfigKey = "clientName";
         private const int ClientIdLength = 32;
-        private const string ServerIPKey = "QaTest.ServerIP";
-        private const string ServerPortKey = "QaTest.ServerPort";
-        private const string ClientNameKey = "QaTest.ClientName";
+        public const string ServerIPPlayerPrefsKey = "QaTest.ServerIP";
+        public const string ServerPortPlayerPrefsKey = "QaTest.ServerPort";
+        public const string ClientIdPlayerPrefsKey = "QaTest.ClientId";
+        public const string ClientNamePlayerPrefsKey = "QaTest.ClientName";
+        public const string AutoConnectOnStartupPlayerPrefsKey = "QaTest.AutoConnectOnStartup";
+        private const string ServerIPKey = ServerIPPlayerPrefsKey;
+        private const string ServerPortKey = ServerPortPlayerPrefsKey;
+        private const string ClientIdKey = ClientIdPlayerPrefsKey;
+        private const string ClientNameKey = ClientNamePlayerPrefsKey;
+        private const string AutoConnectOnStartupKey = AutoConnectOnStartupPlayerPrefsKey;
         private const string DefaultServerIP = "localhost";
         private const int DefaultServerPort = 3000;
         private const string ServerScheme = "ws";
@@ -337,17 +344,8 @@ namespace QaTestFramework
             Instance = this;
             DontDestroyOnLoad(gameObject);
             RefreshEnabledState();
-            string inspectorClientName = NormalizeClientName(clientName);
-            string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, inspectorClientName));
-            QaTestClientConfig clientConfig = LoadOrCreateClientConfig(inspectorClientName, legacyClientName);
-            bool shouldWriteClientConfig = !Application.isEditor || clientConfig.Exists;
-            clientId = clientConfig.ClientId;
-            clientName = NormalizeClientName(clientConfig.ClientName);
+            InitializeClientIdentity();
             AssignDefaultClientNameIfEmpty();
-            if (shouldWriteClientConfig)
-            {
-                WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
-            }
             RefreshLocalIpAddresses();
 
             if (!qaEnabled)
@@ -412,6 +410,28 @@ namespace QaTestFramework
             get { return webSocket != null && webSocket.State == WebSocketState.Open; }
         }
 
+        private void InitializeClientIdentity()
+        {
+            if (Application.isEditor)
+            {
+                string inspectorClientName = NormalizeClientName(clientName);
+                string legacyClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, inspectorClientName));
+                QaTestClientConfig clientConfig = LoadOrCreateClientConfig(inspectorClientName, legacyClientName);
+                clientId = clientConfig.ClientId;
+                clientName = NormalizeClientName(clientConfig.ClientName);
+                AssignDefaultClientNameIfEmpty();
+                if (clientConfig.Exists)
+                {
+                    WriteClientConfig(GetClientConfigPath(), clientId, ResolveClientName());
+                }
+
+                return;
+            }
+
+            clientId = GetOrCreatePlayerPrefsClientId();
+            clientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, string.Empty));
+        }
+
         public void SetClientName(string newClientName, bool persist = false, bool resendRegister = true)
         {
             clientName = NormalizeClientName(newClientName);
@@ -429,6 +449,20 @@ namespace QaTestFramework
 
         public bool ApplyLocalClientNameConfig(bool resendRegister = false)
         {
+            if (!Application.isEditor)
+            {
+                clientId = GetOrCreatePlayerPrefsClientId();
+                clientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, string.Empty));
+                AssignDefaultClientNameIfEmpty();
+
+                if (resendRegister)
+                {
+                    RefreshRegistration();
+                }
+
+                return PlayerPrefs.HasKey(ClientNameKey);
+            }
+
             QaTestClientConfig config = ReadClientConfig(GetClientConfigPath());
             if (!config.Exists)
             {
@@ -463,13 +497,138 @@ namespace QaTestFramework
             {
                 clientId = clientId,
                 clientName = ResolveClientName(),
-                configPath = GetClientConfigPath(),
+                configPath = Application.isEditor ? GetClientConfigPath() : string.Empty,
+                storage = Application.isEditor ? "qatest.config.txt" : "PlayerPrefs",
             });
         }
 
         public void ClearClientName(bool persist = false, bool resendRegister = true)
         {
             SetClientName(string.Empty, persist, resendRegister);
+        }
+
+        public static void SetIpAndPort(string ip, int port)
+        {
+            string normalizedIP = NormalizeServerIP(ip);
+            int normalizedPort = NormalizeServerPort(port);
+            SaveIpAndPortToPlayerPrefs(normalizedIP, normalizedPort);
+
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (client != null)
+            {
+                client.serverIP = normalizedIP;
+                client.serverPort = normalizedPort;
+                client.RestartConnectionIfActive();
+            }
+        }
+
+        public static void GetIpAndPort(out string ip, out int port)
+        {
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            string fallbackIP = client != null ? client.serverIP : DefaultServerIP;
+            int fallbackPort = client != null ? client.serverPort : DefaultServerPort;
+
+            ip = PlayerPrefs.GetString(ServerIPKey, NormalizeServerIP(fallbackIP));
+            port = PlayerPrefs.HasKey(ServerPortKey) ? PlayerPrefs.GetInt(ServerPortKey, NormalizeServerPort(fallbackPort)) : NormalizeServerPort(fallbackPort);
+            ip = NormalizeServerIP(ip);
+            port = NormalizeServerPort(port);
+        }
+
+        public static void SetClientName(string newClientName)
+        {
+            string normalizedClientName = NormalizeClientName(newClientName);
+
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (client != null)
+            {
+                client.SetClientName(normalizedClientName, true, true);
+                return;
+            }
+
+            SaveClientNameToPlayerPrefs(normalizedClientName);
+        }
+
+        public static string GetClientName()
+        {
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            if (Application.isEditor)
+            {
+                if (client != null)
+                {
+                    return client.ResolvedClientName;
+                }
+
+                QaTestClientConfig config = ReadClientConfig(GetClientConfigPath());
+                string editorClientId = IsValidClientId(config.ClientId) ? config.ClientId : GenerateClientId();
+                string editorClientName = NormalizeClientName(config.ClientName);
+                return string.IsNullOrWhiteSpace(editorClientName) ? GetDefaultClientName(editorClientId) : editorClientName;
+            }
+
+            string persistedClientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, string.Empty));
+            if (!string.IsNullOrWhiteSpace(persistedClientName))
+            {
+                return persistedClientName;
+            }
+
+            if (client != null)
+            {
+                return client.ResolvedClientName;
+            }
+
+            string resolvedClientId = GetOrCreatePlayerPrefsClientId();
+            return GetDefaultClientName(resolvedClientId);
+        }
+
+        public static void SetAutoConnectOnStartup(bool enabled)
+        {
+            PlayerPrefs.SetInt(AutoConnectOnStartupKey, enabled ? 1 : 0);
+            PlayerPrefs.Save();
+        }
+
+        public static bool GetAutoConnectOnStartup()
+        {
+            return PlayerPrefs.HasKey(AutoConnectOnStartupKey) && PlayerPrefs.GetInt(AutoConnectOnStartupKey, 0) != 0;
+        }
+
+        public static QaTestClient StartConnect()
+        {
+            QaTestClient client = Instance != null ? Instance : FindObjectOfType<QaTestClient>(true);
+            bool wasEnabled = client != null && client.enabled;
+            string previousServerUrl = client != null ? client.GetConfiguredServerUrlSnapshot() : string.Empty;
+            string previousClientName = client != null ? client.ResolveClientName() : string.Empty;
+
+            if (client == null)
+            {
+                client = CreateClientObject();
+            }
+            else
+            {
+                client.ApplyPlayerPrefsConfiguration();
+            }
+
+            client.ApplyClientEnabled(true, true);
+            if (wasEnabled)
+            {
+                string currentServerUrl = client.GetConfiguredServerUrlSnapshot();
+                string currentClientName = client.ResolveClientName();
+                if (!previousServerUrl.Equals(currentServerUrl, StringComparison.Ordinal))
+                {
+                    client.RestartConnectionIfActive();
+                }
+                else if (!previousClientName.Equals(currentClientName, StringComparison.Ordinal))
+                {
+                    client.RefreshRegistration();
+                }
+            }
+
+            return client;
+        }
+
+        public static QaTestClient StartConnect(string ip, int port, string newClientName)
+        {
+            SaveIpAndPortToPlayerPrefs(NormalizeServerIP(ip), NormalizeServerPort(port));
+            SaveClientNameToPlayerPrefs(NormalizeClientName(newClientName));
+            return StartConnect();
         }
 
         public void SetClientEnabled(bool isEnabled, bool persist = true)
@@ -496,6 +655,11 @@ namespace QaTestFramework
 
             if (client != null)
             {
+                if (isEnabled && !Application.isEditor)
+                {
+                    client.ApplyPlayerPrefsConfiguration();
+                }
+
                 client.ApplyClientEnabled(isEnabled, persist);
             }
             else if (persist)
@@ -552,6 +716,48 @@ namespace QaTestFramework
             registeredMethodCount = registry.Methods.Count;
             CancellationToken token = lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None;
             _ = SendRegisterSafeAsync(token);
+        }
+
+        private void ApplyPlayerPrefsConfiguration()
+        {
+            GetIpAndPort(out string resolvedIP, out int resolvedPort);
+            serverIP = resolvedIP;
+            serverPort = resolvedPort;
+
+            if (!Application.isEditor)
+            {
+                clientId = GetOrCreatePlayerPrefsClientId();
+                clientName = NormalizeClientName(PlayerPrefs.GetString(ClientNameKey, string.Empty));
+                AssignDefaultClientNameIfEmpty();
+                return;
+            }
+
+            AssignDefaultClientNameIfEmpty();
+        }
+
+        private string GetConfiguredServerUrlSnapshot()
+        {
+            string commandLineServerUrl = GetCommandLineServerUrl();
+            if (!string.IsNullOrWhiteSpace(commandLineServerUrl))
+            {
+                return EnsureUnityRole(commandLineServerUrl);
+            }
+
+            return BuildConfiguredServerUrl(serverIP, serverPort);
+        }
+
+        private void RestartConnectionIfActive()
+        {
+            resolvedServerUrl = string.Empty;
+            if (!qaEnabled || !enabled)
+            {
+                return;
+            }
+
+            lifetimeCts?.Cancel();
+            _ = CloseSocketAsync();
+            enabled = false;
+            enabled = true;
         }
 
         private async Task ConnectionLoopAsync(CancellationToken token)
@@ -1477,6 +1683,16 @@ namespace QaTestFramework
 
             PlayerPrefs.Save();
 
+            if (!Application.isEditor)
+            {
+                if (!IsValidClientId(clientId))
+                {
+                    clientId = GetOrCreatePlayerPrefsClientId();
+                }
+
+                return;
+            }
+
             string configPath = GetClientConfigPath();
             string persistedClientId = IsValidClientId(clientId)
                 ? clientId
@@ -1495,6 +1711,45 @@ namespace QaTestFramework
                 ? GetDefaultClientName(persistedClientId)
                 : normalizedClientName;
             WriteClientConfig(configPath, persistedClientId, persistedClientName);
+        }
+
+        private static void SaveIpAndPortToPlayerPrefs(string ip, int port)
+        {
+            PlayerPrefs.SetString(ServerIPKey, NormalizeServerIP(ip));
+            PlayerPrefs.SetInt(ServerPortKey, NormalizeServerPort(port));
+            PlayerPrefs.Save();
+        }
+
+        private static void SaveClientNameToPlayerPrefs(string normalizedClientName)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedClientName))
+            {
+                PlayerPrefs.DeleteKey(ClientNameKey);
+            }
+            else
+            {
+                PlayerPrefs.SetString(ClientNameKey, normalizedClientName);
+            }
+
+            PlayerPrefs.Save();
+        }
+
+        private static string GetOrCreatePlayerPrefsClientId()
+        {
+            string persistedClientId = PlayerPrefs.GetString(ClientIdKey, string.Empty);
+            string normalizedClientId = NormalizeClientId(persistedClientId);
+            if (!IsValidClientId(normalizedClientId))
+            {
+                normalizedClientId = GenerateClientId();
+            }
+
+            if (!persistedClientId.Equals(normalizedClientId, StringComparison.Ordinal))
+            {
+                PlayerPrefs.SetString(ClientIdKey, normalizedClientId);
+                PlayerPrefs.Save();
+            }
+
+            return normalizedClientId;
         }
 
         private void AssignDefaultClientNameIfEmpty()

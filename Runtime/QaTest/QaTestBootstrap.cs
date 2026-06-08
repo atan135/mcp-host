@@ -7,6 +7,12 @@ namespace QaTestFramework
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void CreateClient()
         {
+            if (!Application.isEditor && QaTestClient.GetAutoConnectOnStartup())
+            {
+                QaTestClient.StartConnect();
+                return;
+            }
+
             if (!QaTestClient.ShouldAutoCreateClient())
             {
                 return;
