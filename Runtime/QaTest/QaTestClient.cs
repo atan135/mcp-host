@@ -917,6 +917,12 @@ namespace QaTestFramework
                 HandleServerError(command);
             }
 
+            if (command != null && command.type == "refresh_methods")
+            {
+                mainThreadActions.Enqueue(RefreshRegistration);
+                return;
+            }
+
             if (command == null || command.type != "execute")
             {
                 return;
